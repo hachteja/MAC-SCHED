@@ -1,0 +1,54 @@
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { createClient } from '@/lib/supabase/server'
+
+export async function addAvailableDay(formData: FormData) {
+  const supabase = await createClient()
+
+  const day = String(formData.get('day') || '')
+
+  if (!day) {
+    throw new Error('Missing day')
+  }
+
+  const { error } = await supabase.from('instrument_days').insert({
+    day,
+    status: 'available',
+  })
+
+  if (error) {
+    throw new Error(`Failed to add available day: ${error.message}`)
+  }
+
+  revalidatePath('/admin/available_days')
+  revalidatePath('/available_days')
+}
+
+export async function removeAvailableDay(formData: FormData) {
+  const supabase = await createClient()
+
+  const instrumentDayId = String(formData.get('instrument_day_id') || '')
+  const day = String(formData.get('day') || '')
+
+  if (!instrumentDayId && !day) {
+    throw new Error('Missing instrument day identifier')
+  }
+
+  let query = supabase.from('instrument_days').delete().eq('status', 'available')
+
+  if (instrumentDayId) {
+    query = query.eq('id', instrumentDayId)
+  } else {
+    query = query.eq('day', day)
+  }
+
+  const { error } = await query
+
+  if (error) {
+    throw new Error(`Failed to remove available day: ${error.message}`)
+  }
+
+  revalidatePath('/admin/available_days')
+  revalidatePath('/available_days')
+}

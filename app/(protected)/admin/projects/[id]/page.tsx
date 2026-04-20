@@ -1,0 +1,291 @@
+import { notFound, redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import TopNav from '@/app/components/top-nav'
+import { addProjectMembers, removeProjectMember, updateProject } from '../actions'
+import AddMemberForm from './AddMemberForm'
+
+export const dynamic = 'force-dynamic'
+
+type SearchParams = Promise<{
+  [key: string]: string | string[] | undefined
+}>
+
+type ProjectRow = {
+  id: string
+  title: string
+  proposal_number: string
+  allocated_days: number
+  start_date: string
+  end_date: string
+  status: string
+}
+
+type MemberRow = {
+  user_id: string
+  profiles:
+    | {
+        id: string
+        email: string
+        full_name: string | null
+      }
+    | {
+        id: string
+        email: string
+        full_name: string | null
+      }[]
+    | null
+}
+
+function getSingleParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value
+}
+
+function getErrorMessage(code: string | undefined) {
+  if (code === 'missing') return 'Please fill in all required fields.'
+  if (code === 'dates') return 'End date must be on or after start date.'
+  if (code === 'update') return 'Unable to update project.'
+  if (code === 'members') return 'Unable to add members.'
+  if (code === 'no-matches') return 'No matching existing users were found for those emails.'
+  if (code === 'missing-members') return 'Please provide at least one email.'
+  if (code === 'remove') return 'Unable to remove member.'
+  return null
+}
+
+function getSuccessMessage(code: string | undefined) {
+  if (code === 'updated') return 'Project updated.'
+  if (code === 'members-added') return 'Members added.'
+  if (code === 'member-removed') return 'Member removed.'
+  return null
+}
+
+export default async function AdminProjectDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: SearchParams
+}) {
+  const { id } = await params
+  const qp = await searchParams
+
+  const errorMessage = getErrorMessage(getSingleParam(qp.error))
+  const successMessage = getSuccessMessage(getSingleParam(qp.success))
+
+  const supabase = await createClient()
+
+  const {
+    data: { claims },
+    error: claimsError,
+  } = await supabase.auth.getClaims()
+
+  if (claimsError || !claims) {
+    redirect('/login')
+  }
+
+  const { data: adminRow } = await supabase
+    .from('admins')
+    .select('user_id')
+    .eq('user_id', claims.sub)
+    .maybeSingle()
+
+  if (!adminRow) {
+    redirect('/dashboard')
+  }
+
+  const { data: project, error: projectError } = await supabase
+    .from('projects')
+    .select('id, title, proposal_number, allocated_days, start_date, end_date, status')
+    .eq('id', id)
+    .single()
+
+  if (projectError || !project) {
+    notFound()
+  }
+
+  const { data: members, error: membersError } = await supabase
+    .from('project_members')
+    .select(`
+      user_id,
+      profiles:user_id (
+        id,
+        email,
+        full_name
+      )
+    `)
+    .eq('project_id', id)
+
+  if (membersError) {
+    return (
+      <main className="p-6 space-y-6">
+        <TopNav />
+        <p className="text-red-600">Error loading members: {membersError.message}</p>
+      </main>
+    )
+  }
+
+  const projectRow = project as ProjectRow
+  const memberRows = (members as MemberRow[] | null) ?? []
+
+  return (
+    <main className="p-6 space-y-6">
+      <TopNav />
+
+      <div>
+        <h1 className="text-3xl font-bold">Edit Project</h1>
+        <p className="text-sm text-gray-600">{projectRow.proposal_number}</p>
+      </div>
+
+      {errorMessage ? (
+        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {errorMessage}
+        </div>
+      ) : null}
+
+      {successMessage ? (
+        <div className="rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">
+          {successMessage}
+        </div>
+      ) : null}
+
+      <form action={updateProject} className="space-y-4 rounded-2xl border p-6">
+        <input type="hidden" name="project_id" value={projectRow.id} />
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Project Title</span>
+            <input
+              name="title"
+              type="text"
+              defaultValue={projectRow.title}
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Proposal Number</span>
+            <input
+              name="proposal_number"
+              type="text"
+              defaultValue={projectRow.proposal_number}
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Allocated Days</span>
+            <input
+              name="allocated_days"
+              type="number"
+              min="1"
+              defaultValue={projectRow.allocated_days}
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </label>
+
+          <div />
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Start Date</span>
+            <input
+              name="start_date"
+              type="date"
+              defaultValue={projectRow.start_date}
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">End Date</span>
+            <input
+              name="end_date"
+              type="date"
+              defaultValue={projectRow.end_date}
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </label>
+        </div>
+
+        <div>
+          <button
+            type="submit"
+            className="rounded border px-4 py-2 text-sm font-medium"
+          >
+            Save Changes
+          </button>
+        </div>
+      </form>
+
+      <section className="space-y-4 rounded-2xl border p-6">
+        <h2 className="text-xl font-semibold">Project Members</h2>
+
+        {memberRows.length === 0 ? (
+          <p className="text-sm text-gray-600">No members on this project yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {memberRows.map((member) => {
+              const profile = Array.isArray(member.profiles)
+                ? member.profiles[0]
+                : member.profiles
+
+              return (
+                <div
+                  key={member.user_id}
+                  className="flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm"
+                >
+                  <div className="min-w-0 flex-1">
+                    {profile?.full_name || profile?.email || member.user_id}
+                  </div>
+
+                  <div className="shrink-0 text-gray-600">
+                    {profile?.email}
+                  </div>
+
+                  <form action={removeProjectMember}>
+                    <input type="hidden" name="project_id" value={projectRow.id} />
+                    <input type="hidden" name="user_id" value={member.user_id} />
+                    <button
+                      type="submit"
+                      className="rounded border px-3 py-1 text-xs font-medium"
+                    >
+                      Remove
+                    </button>
+                  </form>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        <div className="pt-2 border-t">
+          <AddMemberForm projectId={projectRow.id} />
+        </div>
+
+        <form action={addProjectMembers} className="space-y-3 pt-4 border-t">
+          <input type="hidden" name="project_id" value={projectRow.id} />
+
+          <label className="space-y-1 block">
+            <span className="text-sm font-medium">Add Existing Users by Email</span>
+            <textarea
+              name="member_emails"
+              rows={4}
+              className="w-full rounded border px-3 py-2"
+              placeholder="one@email.com, another@email.com"
+            />
+          </label>
+
+          <button
+            type="submit"
+            className="rounded border px-4 py-2 text-sm font-medium"
+          >
+            Add Members
+          </button>
+        </form>
+      </section>
+    </main>
+  )
+}

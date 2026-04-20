@@ -1,0 +1,57 @@
+import Link from 'next/link'
+import { createClient } from '@/lib/supabase/server'
+
+export default async function TopNav() {
+  const supabase = await createClient()
+
+  const {
+    data: { claims },
+  } = await supabase.auth.getClaims()
+
+  let isAdmin = false
+
+  if (claims?.sub) {
+    const { data: adminRow } = await supabase
+      .from('admins')
+      .select('user_id')
+      .eq('user_id', claims.sub)
+      .maybeSingle()
+
+    isAdmin = !!adminRow
+  }
+
+  return (
+    <div className="flex gap-3 border-b pb-3">
+      <Link
+        href="/dashboard"
+        className="rounded-md border px-3 py-2 text-sm font-medium"
+      >
+        Project Summary
+      </Link>
+
+      <Link
+        href="/available-days"
+        className="rounded-md border px-3 py-2 text-sm font-medium"
+      >
+        Available Days
+      {isAdmin ? (
+        <>
+          <Link
+            href="/admin/projects"
+            className="rounded-md border px-3 py-2 text-sm font-medium"
+          >
+            Admin Projects
+          </Link>
+
+          <Link
+            href="/admin/requests"
+            className="rounded-md border px-3 py-2 text-sm font-medium"
+          >
+            Admin Requests
+          </Link>
+        </>
+      ) : null}
+
+    </div>
+  )
+}

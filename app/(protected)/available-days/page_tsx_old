@@ -1,0 +1,524 @@
+import Link from 'next/link'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import { cancelRequest, requestDay } from './actions'
+
+export const dynamic = 'force-dynamic'
+
+type SearchParams = Promise<{
+  [key: string]: string | string[] | undefined
+}>
+
+type ProfileRow = {
+  id: string
+  email: string
+  full_name: string | null
+}
+
+type ProjectRow = {
+  id: string
+  title: string
+  proposal_number: string
+  allocated_days: number
+  start_date: string
+  end_date: string
+}
+
+type MembershipRow = {
+  project_id: string
+  projects: ProjectRow | ProjectRow[] | null
+}
+
+type CalendarRow = {
+  id: string
+  day: string
+  status: string
+  notes: string | null
+}
+
+type BookingRow = {
+  id: string
+  instrument_day_id: string
+  project_id: string
+  status: string
+  requested_by_user_id: string
+  profiles?: ProfileRow | ProfileRow[] | null
+  instrument_days: {
+    day: string
+    status: string
+  } | null
+}
+
+type MonthGroup = {
+  label: string
+  rows: CalendarRow[]
+}
+
+function getSingleParam(
+  value: string | string[] | undefined
+): string | undefined {
+  if (Array.isArray(value)) return value[0]
+  return value
+}
+
+function getErrorMessage(errorCode: string | undefined) {
+  if (errorCode === 'signin') return 'You must be signed in.'
+  if (errorCode === 'missing') return 'Missing required information.'
+  if (errorCode === 'allocation') return 'No remaining allocation for this project.'
+  if (errorCode === 'unavailable') return 'That day is no longer available.'
+  if (errorCode === 'cancel') return 'Unable to cancel request.'
+  if (errorCode === 'generic') return 'Something went wrong.'
+  return null
+}
+
+function getSuccessMessage(successCode: string | undefined) {
+  if (successCode === 'requested') return 'Request submitted.'
+  if (successCode === 'cancelled') return 'Request cancelled.'
+  return null
+}
+
+export default async function AvailableDaysPage({
+  searchParams,
+}: {
+  searchParams: SearchParams
+}) {
+  const params = await searchParams
+
+  const selectedProjectParam = getSingleParam(params.project)
+  const errorCode = getSingleParam(params.error)
+  const successCode = getSingleParam(params.success)
+
+  const errorMessage = getErrorMessage(errorCode)
+  const successMessage = getSuccessMessage(successCode)
+
+  const supabase = await createClient()
+
+  const {
+    data: { claims },
+    error: claimsError,
+  } = await supabase.auth.getClaims()
+
+  if (claimsError || !claims) {
+    redirect('/login')
+  }
+
+  const userId = claims.sub
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, email, full_name')
+    .eq('id', userId)
+    .single()
+
+  const { data: memberships, error: membershipsError } = await supabase
+    .from('project_members')
+    .select(`
+      project_id,
+      projects (
+        id,
+        title,
+        proposal_number,
+        allocated_days,
+        start_date,
+        end_date
+      )
+    `)
+    .eq('user_id', userId)
+
+  if (membershipsError) {
+    return (
+      <main className="p-6">
+        <p className="text-red-600">Error loading projects: {membershipsError.message}</p>
+      </main>
+    )
+  }
+
+  const projects: ProjectRow[] =
+    ((memberships as MembershipRow[] | null) ?? [])
+      .map((m) => (Array.isArray(m.projects) ? m.projects[0] : m.projects))
+      .filter((p): p is ProjectRow => Boolean(p))
+
+  if (!projects.length) {
+    return (
+      <main className="p-6 space-y-6">
+        <TopNav />
+        <div>
+          <h1 className="text-3xl font-bold">Available Days</h1>
+          <p className="text-sm text-gray-600">
+            Signed in as {profile?.full_name || profile?.email}
+          </p>
+        </div>
+        {errorMessage ? (
+          <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {errorMessage}
+          </div>
+        ) : null}
+        {successMessage ? (
+          <div className="rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">
+            {successMessage}
+          </div>
+        ) : null}
+        <p className="text-gray-600">No projects found for this user.</p>
+      </main>
+    )
+  }
+
+  const selectedProject =
+    projects.find((p) => p.id === selectedProjectParam) ?? projects[0]
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const todayStr = toDateOnly(today)
+
+  const projectIds = projects.map((p) => p.id)
+
+  const { data: allProjectBookings, error: allProjectBookingsError } = await supabase
+    .from('booking_requests')
+    .select(`
+      id,
+      instrument_day_id,
+      project_id,
+      status,
+      requested_by_user_id,
+      instrument_days (
+        day,
+        status
+      )
+    `)
+    .in('project_id', projectIds)
+    .in('status', ['pending', 'booked'])
+
+  if (allProjectBookingsError) {
+    return (
+      <main className="p-6 space-y-6">
+        <TopNav />
+        <p className="text-red-600">
+          Error loading project totals: {allProjectBookingsError.message}
+        </p>
+      </main>
+    )
+  }
+
+  const projectBookingRows = (allProjectBookings as BookingRow[] | null) ?? []
+
+  const effectiveStart =
+    selectedProject.start_date > todayStr ? selectedProject.start_date : todayStr
+
+  const { data: days, error: daysError } = await supabase
+    .from('instrument_days')
+    .select('id, day, status, notes')
+    .gte('day', effectiveStart)
+    .lte('day', selectedProject.end_date)
+    .order('day', { ascending: true })
+
+  if (daysError) {
+    return (
+      <main className="p-6 space-y-6">
+        <TopNav />
+        <p className="text-red-600">Error loading days: {daysError.message}</p>
+      </main>
+    )
+  }
+
+  const dayRows = ((days as CalendarRow[] | null) ?? []).filter((d) => d.day >= todayStr)
+  const dayIds = dayRows.map((d) => d.id)
+
+  const { data: allBookings, error: bookingsError } = dayIds.length
+    ? await supabase
+        .from('booking_requests')
+        .select(`
+          id,
+          instrument_day_id,
+          project_id,
+          status,
+          requested_by_user_id,
+          profiles:requested_by_user_id (
+            id,
+            email,
+            full_name
+          ),
+          instrument_days (
+            day,
+            status
+          )
+        `)
+        .in('instrument_day_id', dayIds)
+        .in('status', ['pending', 'booked'])
+        .order('created_at', { ascending: true })
+    : { data: [], error: null }
+
+  if (bookingsError) {
+    return (
+      <main className="p-6 space-y-6">
+        <TopNav />
+        <p className="text-red-600">Error loading bookings: {bookingsError.message}</p>
+      </main>
+    )
+  }
+
+  const bookingRows = (allBookings as BookingRow[] | null) ?? []
+
+  const selectedProjectBookings = projectBookingRows.filter(
+    (b) => b.project_id === selectedProject.id
+  )
+
+  const pendingRows = selectedProjectBookings.filter((b) => b.status === 'pending')
+
+  const completedRows = selectedProjectBookings.filter((b) => {
+    if (b.status !== 'booked' || !b.instrument_days?.day) return false
+    const day = new Date(`${b.instrument_days.day}T00:00:00`)
+    day.setHours(0, 0, 0, 0)
+    return day < today
+  })
+
+  const bookedRows = selectedProjectBookings.filter((b) => {
+    if (b.status !== 'booked' || !b.instrument_days?.day) return false
+    const day = new Date(`${b.instrument_days.day}T00:00:00`)
+    day.setHours(0, 0, 0, 0)
+    return day >= today
+  })
+
+  const groupedRows = groupByMonth(dayRows)
+
+  return (
+    <main className="p-6 space-y-6">
+      <TopNav />
+
+      <div>
+        <h1 className="text-3xl font-bold">Available Days</h1>
+        <p className="text-sm text-gray-600">
+          Signed in as {profile?.full_name || profile?.email}
+        </p>
+      </div>
+
+      {errorMessage ? (
+        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {errorMessage}
+        </div>
+      ) : null}
+
+      {successMessage ? (
+        <div className="rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">
+          {successMessage}
+        </div>
+      ) : null}
+
+      <div className="space-y-3">
+        <p className="text-sm font-medium text-gray-700">Select a project</p>
+        <div className="flex flex-wrap gap-3">
+          {projects.map((project) => {
+            const projectPending = countPending(project, projectBookingRows, today)
+            const projectCompleted = countCompleted(project, projectBookingRows, today)
+            const projectBooked = countBooked(project, projectBookingRows, today)
+            const projectRemaining =
+              project.allocated_days - projectPending - projectBooked - projectCompleted
+
+            const isSelected = project.id === selectedProject.id
+
+            return (
+              <Link
+                key={project.id}
+                href={`/available-days?project=${project.id}`}
+                className={`rounded-xl border px-3 py-2 text-sm shadow-sm ${
+                  isSelected ? 'border-black font-semibold' : ''
+                }`}
+              >
+                <div>{project.proposal_number}</div>
+                <div className="text-gray-600">
+                  {formatShortDate(project.start_date)} - {formatShortDate(project.end_date)}
+                </div>
+                <div className="text-gray-600">{projectRemaining} days remaining</div>
+              </Link>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border p-4 space-y-5">
+        {groupedRows.length === 0 ? (
+          <p className="text-sm text-gray-600">
+            No current or upcoming days in this proposal window.
+          </p>
+        ) : (
+          groupedRows.map((group) => (
+            <div key={group.label} className="space-y-2">
+              <h3 className="border-b pb-1 text-sm font-semibold uppercase tracking-wide text-gray-600">
+                {group.label}
+              </h3>
+
+              <div className="space-y-1">
+                {group.rows.map((day) => {
+                  const booking = bookingRows.find((b) => b.instrument_day_id === day.id)
+
+                  const requester = booking
+                    ? Array.isArray(booking.profiles)
+                      ? booking.profiles[0]
+                      : booking.profiles
+                    : null
+
+                  const requesterName =
+                    requester?.full_name || requester?.email || null
+
+                  const belongsToSelectedProject =
+                    booking?.project_id === selectedProject.id
+                  const isMine = booking?.requested_by_user_id === userId
+
+                  const statusLabel =
+                    day.status === 'available'
+                      ? 'Available'
+                      : day.status === 'pending'
+                        ? 'Pending'
+                        : day.status === 'booked'
+                          ? 'Booked'
+                          : day.status
+
+                  const middleText =
+                    booking && belongsToSelectedProject && requesterName
+                      ? `Requested for ${selectedProject.proposal_number} by ${requesterName}${isMine ? ' (you)' : ''}`
+                      : ''
+
+                  return (
+                    <div
+                      key={day.id}
+                      className="flex items-center justify-between gap-3 rounded border px-3 py-1.5 text-sm"
+                    >
+                      <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
+                        <span className="w-20 shrink-0 font-medium">
+                          {formatShortDate(day.day)}
+                        </span>
+
+                        <span className="w-20 shrink-0 text-gray-700">
+                          {statusLabel}
+                        </span>
+
+                        <span className="min-w-0 truncate text-gray-600">
+                          {middleText}
+                        </span>
+                      </div>
+
+                      <div className="shrink-0">
+                        {day.status === 'available' ? (
+                          <form action={requestDay}>
+                            <input type="hidden" name="instrument_day_id" value={day.id} />
+                            <input type="hidden" name="project_id" value={selectedProject.id} />
+                            <button
+                              type="submit"
+                              className="rounded border px-2 py-1 text-xs font-medium"
+                            >
+                              Request
+                            </button>
+                          </form>
+                        ) : booking && belongsToSelectedProject ? (
+                          <form action={cancelRequest}>
+                            <input type="hidden" name="booking_request_id" value={booking.id} />
+                            <input type="hidden" name="project_id" value={selectedProject.id} />
+                            <button
+                              type="submit"
+                              className="rounded border px-2 py-1 text-xs font-medium"
+                            >
+                              Cancel
+                            </button>
+                          </form>
+                        ) : null}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </main>
+  )
+}
+
+function TopNav() {
+  return (
+    <div className="flex gap-3 border-b pb-3">
+      <Link
+        href="/dashboard"
+        className="rounded-md border px-3 py-2 text-sm font-medium"
+      >
+        Project Summary
+      </Link>
+      <Link
+        href="/available-days"
+        className="rounded-md border px-3 py-2 text-sm font-medium"
+      >
+        Available Days
+      </Link>
+      <Link
+        href="/admin/requests"
+        className="rounded-md border px-3 py-2 text-sm font-medium"
+      >
+        Admin Requests
+      </Link>
+    </div>
+  )
+}
+
+function formatShortDate(dateStr: string) {
+  const date = new Date(`${dateStr}T00:00:00`)
+  return new Intl.DateTimeFormat('en-US', {
+    month: '2-digit',
+    day: '2-digit',
+    year: '2-digit',
+  }).format(date)
+}
+
+function formatMonthLabel(dateStr: string) {
+  const date = new Date(`${dateStr}T00:00:00`)
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    year: 'numeric',
+  }).format(date)
+}
+
+function groupByMonth(rows: CalendarRow[]): MonthGroup[] {
+  const groups = new Map<string, CalendarRow[]>()
+
+  for (const row of rows) {
+    const label = formatMonthLabel(row.day)
+    if (!groups.has(label)) {
+      groups.set(label, [])
+    }
+    groups.get(label)!.push(row)
+  }
+
+  return Array.from(groups.entries()).map(([label, groupedRows]) => ({
+    label,
+    rows: groupedRows,
+  }))
+}
+
+function toDateOnly(date: Date) {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function countPending(project: ProjectRow, bookings: BookingRow[], _today: Date) {
+  return bookings.filter((b) => b.project_id === project.id && b.status === 'pending').length
+}
+
+function countCompleted(project: ProjectRow, bookings: BookingRow[], today: Date) {
+  return bookings.filter((b) => {
+    if (b.project_id !== project.id) return false
+    if (b.status !== 'booked' || !b.instrument_days?.day) return false
+    const day = new Date(`${b.instrument_days.day}T00:00:00`)
+    day.setHours(0, 0, 0, 0)
+    return day < today
+  }).length
+}
+
+function countBooked(project: ProjectRow, bookings: BookingRow[], today: Date) {
+  return bookings.filter((b) => {
+    if (b.project_id !== project.id) return false
+    if (b.status !== 'booked' || !b.instrument_days?.day) return false
+    const day = new Date(`${b.instrument_days.day}T00:00:00`)
+    day.setHours(0, 0, 0, 0)
+    return day >= today
+  }).length
+}

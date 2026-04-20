@@ -1,0 +1,136 @@
+import Link from 'next/link'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import TopNav from '@/app/components/top-nav'
+
+export const dynamic = 'force-dynamic'
+
+type SearchParams = Promise<{
+  [key: string]: string | string[] | undefined
+}>
+
+type ProjectRow = {
+  id: string
+  title: string
+  proposal_number: string
+  allocated_days: number
+  start_date: string
+  end_date: string
+  status: string
+}
+
+function getSingleParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value
+}
+
+function getSuccessMessage(code: string | undefined) {
+  if (code === 'created') return 'Project created.'
+  return null
+}
+
+export default async function AdminProjectsPage({
+  searchParams,
+}: {
+  searchParams: SearchParams
+}) {
+  const params = await searchParams
+  const successMessage = getSuccessMessage(getSingleParam(params.success))
+
+  const supabase = await createClient()
+
+  const {
+    data: { claims },
+    error: claimsError,
+  } = await supabase.auth.getClaims()
+
+  if (claimsError || !claims) {
+    redirect('/login')
+  }
+
+  const { data: adminRow } = await supabase
+    .from('admins')
+    .select('user_id')
+    .eq('user_id', claims.sub)
+    .maybeSingle()
+
+  if (!adminRow) {
+    redirect('/dashboard')
+  }
+
+  const { data: projects, error } = await supabase
+    .from('projects')
+    .select('id, title, proposal_number, allocated_days, start_date, end_date, status')
+    .order('proposal_number', { ascending: true })
+
+  if (error) {
+    return (
+      <main className="p-6 space-y-6">
+        <TopNav />
+        <p className="text-red-600">Error loading projects: {error.message}</p>
+      </main>
+    )
+  }
+
+  const projectRows = (projects as ProjectRow[] | null) ?? []
+
+  return (
+    <main className="p-6 space-y-6">
+      <TopNav />
+
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">Admin Projects</h1>
+          <p className="text-sm text-gray-600">
+            Create and manage projects, dates, allocations, and members.
+          </p>
+        </div>
+
+        <Link
+          href="/admin/projects/new"
+          className="rounded-md border px-4 py-2 text-sm font-medium"
+        >
+          New Project
+        </Link>
+      </div>
+
+      {successMessage ? (
+        <div className="rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">
+          {successMessage}
+        </div>
+      ) : null}
+
+      {projectRows.length === 0 ? (
+        <p className="text-sm text-gray-600">No projects found.</p>
+      ) : (
+        <div className="space-y-2">
+          {projectRows.map((project) => (
+            <Link
+              key={project.id}
+              href={`/admin/projects/${project.id}`}
+              className="block rounded border px-3 py-3 hover:bg-gray-50"
+            >
+              <div className="flex flex-wrap items-center gap-6 text-sm text-gray-700">
+                <span className="font-semibold">{project.proposal_number}</span>
+                <span>{project.title}</span>
+                <span>
+                  {formatShortDate(project.start_date)} - {formatShortDate(project.end_date)}
+                </span>
+                <span>{project.allocated_days} days</span>
+                <span className="capitalize">{project.status}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </main>
+  )
+}
+
+function formatShortDate(dateStr: string) {
+  const date = new Date(`${dateStr}T00:00:00`)
+  return new Intl.DateTimeFormat('en-US', {
+    month: '2-digit',
+    day: '2-digit',
+    year: '2-digit',
+  }).format(date)
+}

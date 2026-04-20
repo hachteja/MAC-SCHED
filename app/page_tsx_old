@@ -1,0 +1,26 @@
+import { createClient } from '@/lib/supabase/server'
+
+export default async function Home() {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('projects')
+    .select('id, title, proposal_number, allocated_days, start_date, end_date')
+    .limit(5)
+
+  return (
+    <main className="p-8 space-y-4">
+      <h1 className="text-2xl font-semibold">Instrument Scheduler</h1>
+
+      {error ? (
+        <pre className="rounded border p-4 text-sm overflow-auto text-red-600">
+          {error.message}
+        </pre>
+      ) : (
+        <pre className="rounded border p-4 text-sm overflow-auto">
+          {JSON.stringify(data, null, 2)}
+        </pre>
+      )}
+    </main>
+  )
+}

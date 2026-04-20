@@ -1,0 +1,89 @@
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+
+function getMessage(errorMessage: string) {
+  if (errorMessage.includes('Project has no remaining allocation')) {
+    return 'No remaining allocation for this project.'
+  }
+
+  if (errorMessage.includes('This day is no longer available')) {
+    return 'That day is no longer available.'
+  }
+
+  return 'Something went wrong.'
+}
+
+export async function requestDay(formData: FormData) {
+  const supabase = await createClient()
+
+  const {
+    data: { claims },
+    error: claimsError,
+  } = await supabase.auth.getClaims()
+
+  const projectId = String(formData.get('project_id') || '')
+  const instrumentDayId = String(formData.get('instrument_day_id') || '')
+
+  if (claimsError || !claims) {
+    redirect(`/available-days?project=${projectId}&error=signin`)
+  }
+
+  const userId = claims.sub
+
+  if (!instrumentDayId || !projectId) {
+    redirect(`/available-days?project=${projectId}&error=missing`)
+  }
+
+  const { error } = await supabase.from('booking_requests').insert({
+    instrument_day_id: instrumentDayId,
+    project_id: projectId,
+    requested_by_user_id: userId,
+    status: 'pending',
+  })
+
+  if (error) {
+    const message = encodeURIComponent(getMessage(error.message))
+    redirect(`/available-days?project=${projectId}&error=${message}`)
+  }
+
+  revalidatePath('/available-days')
+  revalidatePath('/dashboard')
+  redirect(`/available-days?project=${projectId}&success=requested`)
+}
+
+export async function cancelRequest(formData: FormData) {
+  const supabase = await createClient()
+
+  const {
+    data: { claims },
+    error: claimsError,
+  } = await supabase.auth.getClaims()
+
+  const bookingRequestId = String(formData.get('booking_request_id') || '')
+  const projectId = String(formData.get('project_id') || '')
+
+  if (claimsError || !claims) {
+    redirect(`/available-days?project=${projectId}&error=signin`)
+  }
+
+  if (!bookingRequestId) {
+    redirect(`/available-days?project=${projectId}&error=missing`)
+  }
+
+  const { error } = await supabase
+    .from('booking_requests')
+    .update({ status: 'cancelled' })
+    .eq('id', bookingRequestId)
+
+  if (error) {
+    const message = encodeURIComponent('Unable to cancel request.')
+    redirect(`/available-days?project=${projectId}&error=${message}`)
+  }
+
+  revalidatePath('/available-days')
+  revalidatePath('/dashboard')
+  redirect(`/available-days?project=${projectId}&success=cancelled`)
+}
