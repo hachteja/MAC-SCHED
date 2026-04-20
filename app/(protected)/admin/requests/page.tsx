@@ -182,13 +182,13 @@ export default async function AdminRequestsPage({
     )
   }
 
-  const pendingRows = ((pendingRequests as RequestRow[] | null) ?? []).sort((a, b) => {
+  const pendingRows = ((((pendingRequests as RequestRow[] | null as unknown) as ) ?? [])).sort((a, b) => {
     const aDay = getInstrumentDay(a)?.day ?? ''
     const bDay = getInstrumentDay(b)?.day ?? ''
     return aDay.localeCompare(bDay)
   })
 
-  const bookedRows = ((bookedRequests as RequestRow[] | null) ?? []).sort((a, b) => {
+  const bookedRows = ((((bookedRequests as RequestRow[] | null as unknown) as ) ?? [])).sort((a, b) => {
     const aDay = getInstrumentDay(a)?.day ?? ''
     const bDay = getInstrumentDay(b)?.day ?? ''
     return aDay.localeCompare(bDay)

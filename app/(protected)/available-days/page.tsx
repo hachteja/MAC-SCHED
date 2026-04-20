@@ -159,7 +159,7 @@ export default async function AvailableDaysPage({
   }
 
   const projects: ProjectRow[] =
-    ((memberships as MembershipRow[] | null) ?? [])
+    ((((memberships as MembershipRow[] | null as unknown) as ) ?? []))
       .map((m) => (Array.isArray(m.projects) ? m.projects[0] : m.projects))
       .filter((p): p is ProjectRow => Boolean(p))
 
@@ -224,7 +224,7 @@ export default async function AvailableDaysPage({
     )
   }
 
-  const projectBookingRows = (allProjectBookings as BookingRow[] | null) ?? []
+  const projectBookingRows = (((allProjectBookings as BookingRow[] | null as unknown) as ) ?? [])
 
   const effectiveStart =
     selectedProject.start_date > todayStr ? selectedProject.start_date : todayStr
@@ -245,7 +245,7 @@ export default async function AvailableDaysPage({
     )
   }
 
-  const dayRows = ((days as CalendarRow[] | null) ?? []).filter((d) => d.day >= todayStr)
+  const dayRows = ((((days as CalendarRow[] | null as unknown) as ) ?? [])).filter((d) => d.day >= todayStr)
   const dayIds = dayRows.map((d) => d.id)
 
   const { data: allBookings, error: bookingsError } = dayIds.length
@@ -281,7 +281,7 @@ export default async function AvailableDaysPage({
     )
   }
 
-  const bookingRows = (allBookings as BookingRow[] | null) ?? []
+  const bookingRows = (((allBookings as BookingRow[] | null as unknown) as ) ?? [])
 
   const selectedProjectBookings = projectBookingRows.filter(
     (b) => b.project_id === selectedProject.id
