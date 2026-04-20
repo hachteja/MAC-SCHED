@@ -1,0 +1,150 @@
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import TopNav from '@/app/components/top-nav'
+import { createProject } from '../actions'
+
+export const dynamic = 'force-dynamic'
+
+type SearchParams = Promise<{
+  [key: string]: string | string[] | undefined
+}>
+
+function getSingleParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value
+}
+
+function getErrorMessage(code: string | undefined) {
+  if (code === 'missing') return 'Please fill in all required fields.'
+  if (code === 'dates') return 'End date must be on or after start date.'
+  if (code === 'create') return 'Unable to create project.'
+  if (code === 'members') return 'Unable to add one or more members.'
+  return null
+}
+
+export default async function NewProjectPage({
+  searchParams,
+}: {
+  searchParams: SearchParams
+}) {
+  const params = await searchParams
+  const errorMessage = getErrorMessage(getSingleParam(params.error))
+
+  const supabase = await createClient()
+
+  const { data, error: claimsError } = await supabase.auth.getClaims()
+  const claims = data?.claims
+
+  if (claimsError || !claims) {
+    redirect('/login')
+  }
+
+  const { data: adminRow } = await supabase
+    .from('admins')
+    .select('user_id')
+    .eq('user_id', claims.sub)
+    .maybeSingle()
+
+  if (!adminRow) {
+    redirect('/dashboard')
+  }
+
+  return (
+    <main className="p-6 space-y-6">
+      <TopNav />
+
+      <div>
+        <h1 className="text-3xl font-bold">New Project</h1>
+        <p className="text-sm text-gray-600">
+          Create a proposal, set the date window, allocation, and optionally add existing users.
+        </p>
+      </div>
+
+      {errorMessage ? (
+        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {errorMessage}
+        </div>
+      ) : null}
+
+      <form action={createProject} className="space-y-4 rounded-2xl border p-6">
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Project Title</span>
+            <input
+              name="title"
+              type="text"
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Proposal Number</span>
+            <input
+              name="proposal_number"
+              type="text"
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Allocated Days</span>
+            <input
+              name="allocated_days"
+              type="number"
+              min="1"
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </label>
+
+          <div />
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Start Date</span>
+            <input
+              name="start_date"
+              type="date"
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">End Date</span>
+            <input
+              name="end_date"
+              type="date"
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </label>
+        </div>
+
+        <label className="space-y-1 block">
+          <span className="text-sm font-medium">
+            Existing User Emails
+          </span>
+          <textarea
+            name="member_emails"
+            rows={5}
+            className="w-full rounded border px-3 py-2"
+            placeholder="one@email.com, another@email.com"
+          />
+          <p className="text-xs text-gray-600">
+            Add existing users by email. Separate with commas, semicolons, or new lines.
+          </p>
+        </label>
+
+        <div>
+          <button
+            type="submit"
+            className="rounded border px-4 py-2 text-sm font-medium"
+          >
+            Create Project
+          </button>
+        </div>
+      </form>
+    </main>
+  )
+}

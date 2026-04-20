@@ -79,7 +79,7 @@ export default async function DashboardPage() {
   }
 
   const projects: ProjectRow[] =
-    ((((memberships as unknown) as MembershipRow[] | null) ?? []))
+    ((((memberships as MembershipRow[] | null as unknown) as ) ?? []))
       .map((m) => (Array.isArray(m.projects) ? m.projects[0] : m.projects))
       .filter((p): p is ProjectRow => Boolean(p))
 
@@ -130,7 +130,7 @@ export default async function DashboardPage() {
     )
   }
 
-  const bookingRows = (((bookings as unknown) as BookingRow[] | null) ?? [])
+  const bookingRows = (((bookings as BookingRow[] | null as unknown) as ) ?? [])
 
   return (
     <main className="p-6 space-y-6">

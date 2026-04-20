@@ -122,7 +122,7 @@ export default async function AdminProjectDetailPage({
   }
 
   const projectRow = project as ProjectRow
-  const memberRows = (((members as unknown) as MemberRow[] | null) ?? [])
+  const memberRows = (((members as MemberRow[] | null as unknown) as ) ?? [])
 
   return (
     <main className="p-6 space-y-6">
