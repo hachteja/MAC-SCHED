@@ -6,18 +6,16 @@ import { createClient } from '@/lib/supabase/server'
 async function requireAdmin() {
   const supabase = await createClient()
 
-  const { data, error: claimsError } = await supabase.auth.getClaims()
-  const claims = data?.claims
+  const {
+    data: { claims },
+    error: claimsError,
+  } = await supabase.auth.getClaims()
 
   if (claimsError || !claims) {
     throw new Error('You must be signed in.')
   }
 
   const userId = claims.sub
-
-  if (!userId) {
-    throw new Error('Unable to determine signed-in user.')
-  }
 
   const { data: adminRow, error: adminError } = await supabase
     .from('admins')
