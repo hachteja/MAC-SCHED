@@ -7,8 +7,10 @@ import { createClient } from '@/lib/supabase/server'
 export async function requestDay(formData: FormData) {
   const supabase = await createClient()
 
-  const { data, error: claimsError } = await supabase.auth.getClaims()
-  const claims = data?.claims
+  const {
+    data: { claims },
+    error: claimsError,
+  } = await supabase.auth.getClaims()
 
   const projectId = String(formData.get('project_id') || '')
   const instrumentDayId = String(formData.get('instrument_day_id') || '')
@@ -50,8 +52,10 @@ export async function requestDay(formData: FormData) {
 export async function cancelRequest(formData: FormData) {
   const supabase = await createClient()
 
-  const { data, error: claimsError } = await supabase.auth.getClaims()
-  const claims = data?.claims
+  const {
+    data: { claims },
+    error: claimsError,
+  } = await supabase.auth.getClaims()
 
   const bookingRequestId = String(formData.get('booking_request_id') || '')
   const projectId = String(formData.get('project_id') || '')
