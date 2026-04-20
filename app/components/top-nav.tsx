@@ -4,9 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 export default async function TopNav() {
   const supabase = await createClient()
 
-  const {
-    data: { claims },
-  } = await supabase.auth.getClaims()
+  const { data } = await supabase.auth.getClaims()
+  const claims = data?.claims
 
   let isAdmin = false
 
@@ -52,12 +51,12 @@ export default async function TopNav() {
             Admin Requests
           </Link>
 
-	  <Link
-  	  href="/admin/available_days"
-	    className="rounded-md border px-3 py-2 text-sm font-medium"
-	  >
-	    Admin Availability
-	  </Link>
+          <Link
+            href="/admin/available_days"
+            className="rounded-md border px-3 py-2 text-sm font-medium"
+          >
+            Admin Availability
+          </Link>
         </>
       ) : null}
     </div>
