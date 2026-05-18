@@ -1,17 +1,18 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { changePassword } from './actions'
+import { createClient } from '@/lib/supabase/client'
 
 export default function ChangePasswordPage() {
+  const supabase = createClient()
   const router = useRouter()
 
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [message, setMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
-  const [isPending, startTransition] = useTransition()
+  const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -28,21 +29,25 @@ export default function ChangePasswordPage() {
       return
     }
 
-    startTransition(async () => {
-      try {
-        await changePassword(password)
-        setMessage('Your password has been updated. You can now sign in with the new password.')
+    setLoading(true)
 
-        setTimeout(() => {
-          router.push('/login')
-          router.refresh()
-        }, 1200)
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Unable to update password.'
-        setErrorMessage(message)
-      }
+    const { error } = await supabase.auth.updateUser({
+      password,
     })
+
+    if (error) {
+      setErrorMessage(error.message)
+      setLoading(false)
+      return
+    }
+
+    setMessage('Your password has been updated. You can now sign in with the new password.')
+    setLoading(false)
+
+    setTimeout(() => {
+      router.push('/login')
+      router.refresh()
+    }, 1200)
   }
 
   return (
@@ -88,10 +93,10 @@ export default function ChangePasswordPage() {
 
           <button
             type="submit"
-            disabled={isPending}
+            disabled={loading}
             className="w-full rounded-md border border-gray-300 px-4 py-2 font-medium hover:bg-gray-50 disabled:opacity-50"
           >
-            {isPending ? 'Updating...' : 'Update password'}
+            {loading ? 'Updating...' : 'Update password'}
           </button>
         </form>
 

@@ -40,6 +40,14 @@ type BookingRow = {
 export default async function DashboardPage() {
   const supabase = await createClient()
 
+  async function signOut() {
+    'use server'
+
+    const supabase = await createClient()
+    await supabase.auth.signOut()
+    redirect('/login')
+  }
+
   const { data, error: claimsError } = await supabase.auth.getClaims()
   const claims = data?.claims
 
@@ -92,6 +100,14 @@ export default async function DashboardPage() {
           <p className="text-sm text-gray-600">
             Signed in as {profile?.full_name || profile?.email}
           </p>
+          <form action={signOut} className="mt-2">
+            <button
+              type="submit"
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Sign out
+            </button>
+          </form>
         </div>
         <p className="text-gray-600">No projects found for this user.</p>
       </main>
@@ -141,6 +157,14 @@ export default async function DashboardPage() {
         <p className="text-sm text-gray-600">
           Signed in as {profile?.full_name || profile?.email}
         </p>
+        <form action={signOut} className="mt-2">
+          <button
+            type="submit"
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Sign out
+          </button>
+        </form>
       </div>
 
       <div className="space-y-8">
@@ -271,8 +295,8 @@ function ScheduledDayColumn({
             const requesterName = requester?.full_name || requester?.email || 'Unknown User'
 
             return (
-
-              <div key={row.id}
+              <div
+                key={row.id}
                 className={`rounded-md border p-3 ${
                   row.status === 'pending'
                     ? 'bg-yellow-50 border-yellow-200'
@@ -312,7 +336,7 @@ function CompletedDayColumn({
             const requesterName = requester?.full_name || requester?.email || 'Unknown User'
 
             return (
-	      <div key={row.id} className="rounded-md border p-3 bg-gray-100 border-gray-300">
+              <div key={row.id} className="rounded-md border p-3 bg-gray-100 border-gray-300">
                 <p className="font-medium">{formatShortDate(row.instrument_days?.day ?? '')}</p>
                 <p className="text-sm text-gray-600">Booked By: {requesterName}</p>
               </div>

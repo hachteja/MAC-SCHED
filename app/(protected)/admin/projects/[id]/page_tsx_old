@@ -2,7 +2,6 @@ import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import TopNav from '@/app/components/top-nav'
 import {
-  addHistoricalUsedDate,
   addProjectMembers,
   extendProjectCycle,
   removeProjectMember,
@@ -81,13 +80,6 @@ function getErrorMessage(code: string | undefined) {
   if (code === 'extend-duplicate') return 'This project is already linked to the next matching cycle.'
   if (code === 'extend-limit') return 'Projects can only be extended once.'
   if (code === 'extend-date') return 'Project was extended, but the end date could not be updated.'
-
-  if (code === 'used-date-missing') return 'Choose a used date.'
-  if (code === 'used-date-project') return 'Project not found.'
-  if (code === 'used-date-day') return 'Could not create or update that instrument day.'
-  if (code === 'used-date-booking') return 'Could not create the booking record.'
-  if (code === 'used-date-duplicate') return 'That date is already pending or booked.'
-
   return null
 }
 
@@ -96,7 +88,6 @@ function getSuccessMessage(code: string | undefined) {
   if (code === 'members-added') return 'Members added.'
   if (code === 'member-removed') return 'Member removed.'
   if (code === 'extended') return 'Project extended into the next cycle.'
-  if (code === 'used-date-added') return 'Historical used date added.'
   return null
 }
 
@@ -111,7 +102,6 @@ export default async function AdminProjectDetailPage({
   const qp = await searchParams
 
   const errorMessage = getErrorMessage(getSingleParam(qp.error))
-  const errorDetails = getSingleParam(qp.details)
   const successMessage = getSuccessMessage(getSingleParam(qp.success))
 
   const supabase = await createClient()
@@ -234,12 +224,6 @@ export default async function AdminProjectDetailPage({
       {errorMessage ? (
         <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
           {errorMessage}
-        </div>
-      ) : null}
-
-      {errorDetails ? (
-        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">
-         {errorDetails}
         </div>
       ) : null}
 
@@ -419,47 +403,6 @@ export default async function AdminProjectDetailPage({
             className="rounded border px-4 py-2 text-sm font-medium"
           >
             Add Members
-          </button>
-        </form>
-      </section>
-       <section className="space-y-4 rounded-2xl border p-6">
-        <div>
-          <h2 className="text-xl font-semibold">Add Used Date</h2>
-          <p className="text-sm text-gray-600">
-            Add a historical date this project has already used. This will count against the project&apos;s remaining allocated days.
-          </p>
-        </div>
-
-        <form action={addHistoricalUsedDate} className="flex flex-wrap items-end gap-3">
-          <input type="hidden" name="project_id" value={projectRow.id} />
-
-          <label className="space-y-1">
-            <span className="text-sm font-medium">Used Date</span>
-            <input
-              type="date"
-              name="used_day"
-              min={projectRow.start_date}
-              max={projectRow.end_date}
-              required
-              className="block rounded border px-3 py-2 text-sm"
-            />
-          </label>
-
-          <label className="space-y-1">
-            <span className="text-sm font-medium">Note</span>
-            <input
-              type="text"
-              name="admin_notes"
-              placeholder="Optional"
-              className="block rounded border px-3 py-2 text-sm"
-            />
-          </label>
-
-          <button
-            type="submit"
-            className="rounded border px-4 py-2 text-sm font-medium"
-          >
-            Add Used Date
           </button>
         </form>
       </section>

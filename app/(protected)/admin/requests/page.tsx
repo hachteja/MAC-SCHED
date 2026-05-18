@@ -146,6 +146,8 @@ export default async function AdminRequestsPage({
     .eq('status', 'pending')
     .order('created_at', { ascending: true })
 
+  const today = new Date().toISOString().slice(0, 10)
+
   const { data: bookedRequests, error: bookedError } = await supabase
     .from('booking_requests')
     .select(`
@@ -164,12 +166,13 @@ export default async function AdminRequestsPage({
         email,
         full_name
       ),
-      instrument_days:instrument_day_id (
+      instrument_days:instrument_day_id!inner (
         day,
         status
       )
     `)
     .eq('status', 'booked')
+    .gte('instrument_days.day', today)
 
   if (pendingError || bookedError) {
     return (
@@ -277,10 +280,10 @@ export default async function AdminRequestsPage({
       </section>
 
       <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Approved Requests</h2>
+        <h2 className="text-xl font-semibold">Upcoming Approved Bookings</h2>
 
         {bookedRows.length === 0 ? (
-          <p className="text-sm text-gray-600">No approved requests.</p>
+          <p className="text-sm text-gray-600">No upcoming approved bookings.</p>
         ) : (
           <div className="space-y-2">
             {bookedRows.map((row) => {

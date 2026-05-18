@@ -1,12 +1,11 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import TopNav from '@/app/components/top-nav'
 import {
   approveRequest,
   rejectRequest,
   cancelApprovedRequest,
 } from './actions'
-import TopNav from '@/app/components/top-nav'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,16 +23,27 @@ type RequestRow = {
     id: string
     title: string
     proposal_number: string
-  } | null
+  } | {
+    id: string
+    title: string
+    proposal_number: string
+  }[] | null
   profiles: {
     id: string
     email: string
     full_name: string | null
-  } | null
+  } | {
+    id: string
+    email: string
+    full_name: string | null
+  }[] | null
   instrument_days: {
     day: string
     status: string
-  } | null
+  } | {
+    day: string
+    status: string
+  }[] | null
 }
 
 function getSingleParam(
@@ -58,6 +68,28 @@ function getSuccessMessage(successCode: string | undefined) {
   return null
 }
 
+function formatShortDate(dateStr: string) {
+  if (!dateStr) return ''
+  const date = new Date(`${dateStr}T00:00:00`)
+  return new Intl.DateTimeFormat('en-US', {
+    month: '2-digit',
+    day: '2-digit',
+    year: '2-digit',
+  }).format(date)
+}
+
+function getProject(row: RequestRow) {
+  return Array.isArray(row.projects) ? row.projects[0] : row.projects
+}
+
+function getProfile(row: RequestRow) {
+  return Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+}
+
+function getInstrumentDay(row: RequestRow) {
+  return Array.isArray(row.instrument_days) ? row.instrument_days[0] : row.instrument_days
+}
+
 export default async function AdminRequestsPage({
   searchParams,
 }: {
@@ -69,10 +101,8 @@ export default async function AdminRequestsPage({
 
   const supabase = await createClient()
 
-  const {
-    data: { claims },
-    error: claimsError,
-  } = await supabase.auth.getClaims()
+  const { data, error: claimsError } = await supabase.auth.getClaims()
+  const claims = data?.claims
 
   if (claimsError || !claims) {
     redirect('/login')
@@ -140,7 +170,6 @@ export default async function AdminRequestsPage({
       )
     `)
     .eq('status', 'booked')
-    .order('created_at', { ascending: true })
 
   if (pendingError || bookedError) {
     return (
@@ -153,8 +182,17 @@ export default async function AdminRequestsPage({
     )
   }
 
-  const pendingRows = (pendingRequests as RequestRow[] | null) ?? []
-  const bookedRows = (bookedRequests as RequestRow[] | null) ?? []
+  const pendingRows = ((((pendingRequests as unknown) as RequestRow[] | null) ?? [])).sort((a, b) => {
+    const aDay = getInstrumentDay(a)?.day ?? ''
+    const bDay = getInstrumentDay(b)?.day ?? ''
+    return aDay.localeCompare(bDay)
+  })
+
+  const bookedRows = ((((bookedRequests as unknown) as RequestRow[] | null) ?? [])).sort((a, b) => {
+    const aDay = getInstrumentDay(a)?.day ?? ''
+    const bDay = getInstrumentDay(b)?.day ?? ''
+    return aDay.localeCompare(bDay)
+  })
 
   return (
     <main className="p-6 space-y-6">
@@ -185,27 +223,37 @@ export default async function AdminRequestsPage({
         {pendingRows.length === 0 ? (
           <p className="text-sm text-gray-600">No pending requests.</p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {pendingRows.map((row) => {
-              const requester = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
-              const project = Array.isArray(row.projects) ? row.projects[0] : row.projects
+              const requester = getProfile(row)
+              const project = getProject(row)
+              const instrumentDay = getInstrumentDay(row)
 
               return (
-                <div key={row.id} className="rounded-xl border p-4 shadow-sm space-y-2">
-                  <p className="font-medium">
-                    {formatShortDate(row.instrument_days?.day ?? '')} · {project?.proposal_number}
-                  </p>
-                  <p className="text-sm text-gray-600">{project?.title}</p>
-                  <p className="text-sm text-gray-600">
-                    Requested by {requester?.full_name || requester?.email || 'Unknown User'}
-                  </p>
+                <div
+                  key={row.id}
+                  className="flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm"
+                >
+                  <div className="min-w-0 flex-1 flex items-center gap-8 text-gray-700">
+                    <span className="font-semibold">
+                      {formatShortDate(instrumentDay?.day ?? '')}
+                    </span>
 
-                  <div className="flex gap-2 pt-1">
+                    <span>
+                      Proposal: {project?.proposal_number}
+                    </span>
+      
+                    <span>
+                      User: {requester?.full_name || requester?.email || 'Unknown User'}
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2 shrink-0">
                     <form action={approveRequest}>
                       <input type="hidden" name="request_id" value={row.id} />
                       <button
                         type="submit"
-                        className="rounded border px-3 py-1 text-sm font-medium"
+                        className="rounded border px-3 py-1 text-xs font-medium"
                       >
                         Approve
                       </button>
@@ -215,7 +263,7 @@ export default async function AdminRequestsPage({
                       <input type="hidden" name="request_id" value={row.id} />
                       <button
                         type="submit"
-                        className="rounded border px-3 py-1 text-sm font-medium"
+                        className="rounded border px-3 py-1 text-xs font-medium"
                       >
                         Reject
                       </button>
@@ -229,32 +277,43 @@ export default async function AdminRequestsPage({
       </section>
 
       <section className="space-y-4">
-        <h2 className="text-xl font-semibold">Approved / Booked Requests</h2>
+        <h2 className="text-xl font-semibold">Approved Requests</h2>
 
         {bookedRows.length === 0 ? (
-          <p className="text-sm text-gray-600">No booked requests.</p>
+          <p className="text-sm text-gray-600">No approved requests.</p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {bookedRows.map((row) => {
-              const requester = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
-              const project = Array.isArray(row.projects) ? row.projects[0] : row.projects
+              const requester = getProfile(row)
+              const project = getProject(row)
+              const instrumentDay = getInstrumentDay(row)
 
               return (
-                <div key={row.id} className="rounded-xl border p-4 shadow-sm space-y-2">
-                  <p className="font-medium">
-                    {formatShortDate(row.instrument_days?.day ?? '')} · {project?.proposal_number}
-                  </p>
-                  <p className="text-sm text-gray-600">{project?.title}</p>
-                  <p className="text-sm text-gray-600">
-                    Booked by {requester?.full_name || requester?.email || 'Unknown User'}
-                  </p>
+                <div
+                  key={row.id}
+                  className="flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm"
+                >
 
-                  <div className="pt-1">
+		<div className="min-w-0 flex-1 flex items-center gap-8 text-gray-700">
+		  <span className="font-semibold">
+		    {formatShortDate(instrumentDay?.day ?? '')}
+		  </span>
+
+		  <span>
+		    Proposal: {project?.proposal_number}
+		  </span>
+
+		  <span>
+		    User: {requester?.full_name || requester?.email || 'Unknown User'}
+		  </span>
+		</div>
+
+                  <div className="shrink-0">
                     <form action={cancelApprovedRequest}>
                       <input type="hidden" name="request_id" value={row.id} />
                       <button
                         type="submit"
-                        className="rounded border px-3 py-1 text-sm font-medium"
+                        className="rounded border px-3 py-1 text-xs font-medium"
                       >
                         Cancel Booking
                       </button>
@@ -268,14 +327,4 @@ export default async function AdminRequestsPage({
       </section>
     </main>
   )
-}
-
-function formatShortDate(dateStr: string) {
-  if (!dateStr) return ''
-  const date = new Date(`${dateStr}T00:00:00`)
-  return new Intl.DateTimeFormat('en-US', {
-    month: '2-digit',
-    day: '2-digit',
-    year: '2-digit',
-  }).format(date)
 }

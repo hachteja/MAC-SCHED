@@ -109,8 +109,44 @@ export default async function NewProjectPage({
             />
           </label>
 
-          <CycleDateFields cycles={cycles ?? []} />
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Proposal Cycle</span>
+            <select
+              name="cycleId"
+              className="w-full rounded border px-3 py-2"
+              required
+              defaultValue=""
+            >
+              <option value="" disabled>
+                Select a cycle
+              </option>
+              {(cycles ?? []).map((cycle) => (
+                <option key={cycle.id} value={cycle.id}>
+                  {cycle.code} ({cycle.start_date} to {cycle.end_date})
+                </option>
+              ))}
+            </select>
+          </label>
 
+          <label className="space-y-1">
+            <span className="text-sm font-medium">Start Date</span>
+            <input
+              name="start_date"
+              type="date"
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-sm font-medium">End Date</span>
+            <input
+              name="end_date"
+              type="date"
+              className="w-full rounded border px-3 py-2"
+              required
+            />
+          </label>
         </div>
 
         <label className="space-y-1 block">
