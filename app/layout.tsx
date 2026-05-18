@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "MAC TIME!",
-  description: "Return of the MAC-STEM"",
+  description: "Return of the MAC-STEM",
 };
 
 export default function RootLayout({
