@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MAC TIME!",
+  title: "Get Your MAC On!",
   description: "Return of the MAC-STEM",
 };
 

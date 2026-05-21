@@ -14,13 +14,150 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    color-scheme: dark;
   }
-}
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  html,
+  body {
+    background: #0b0f14;
+    color: #f3f4f6;
+  }
+
+  body {
+    min-height: 100vh;
+  }
+
+  /* Headings and normal text */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p,
+  span,
+  div,
+  label,
+  strong {
+    color: inherit;
+  }
+
+  /* Muted helper text */
+  .text-gray-500,
+  .text-gray-600,
+  .text-slate-500,
+  .text-slate-600,
+  .text-muted,
+  .text-muted-foreground {
+    color: #cbd5e1 !important;
+  }
+
+  /* Main cards / panels / bordered sections */
+  section,
+  article,
+  .card,
+  .rounded,
+  .rounded-lg,
+  .rounded-xl,
+  .rounded-2xl,
+  [class*="border"] {
+    border-color: #475569;
+  }
+
+  /* Cards that are currently white in light mode */
+  .bg-white,
+  .bg-gray-50,
+  .bg-slate-50,
+  .bg-neutral-50 {
+    background-color: #111827 !important;
+    color: #f3f4f6 !important;
+  }
+
+  /* Project cards, summary boxes, request rows */
+  .shadow,
+  .shadow-sm,
+  .shadow-md {
+    background-color: #111827;
+    color: #f3f4f6;
+    border-color: #475569;
+  }
+
+  /* Inputs */
+  input,
+  select,
+  textarea {
+    background-color: #eaf1ff;
+    color: #111827;
+    border-color: #cbd5e1;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: #64748b;
+  }
+
+  /* Buttons */
+  button,
+  a.button {
+    background-color: #111827;
+    color: #f9fafb;
+    border-color: #e5e7eb;
+  }
+
+  button:hover,
+  a.button:hover {
+    background-color: #1f2937;
+  }
+
+  /* Links */
+  a {
+    color: #93c5fd;
+  }
+
+  /* Calendar day boxes */
+  .bg-gray-100,
+  .bg-slate-100,
+  .bg-zinc-100 {
+    background-color: #1f2937 !important;
+    color: #f8fafc !important;
+    border-color: #64748b !important;
+  }
+
+  /* Booked / completed light-blue rows */
+  .bg-blue-50,
+  .bg-sky-50 {
+    background-color: #1e3a5f !important;
+    color: #e0f2fe !important;
+    border-color: #60a5fa !important;
+  }
+
+  /* Available green rows */
+  .bg-green-50,
+  .bg-emerald-50 {
+    background-color: #064e3b !important;
+    color: #d1fae5 !important;
+    border-color: #34d399 !important;
+  }
+
+  /* Pending yellow rows */
+  .bg-yellow-50,
+  .bg-amber-50 {
+    background-color: #713f12 !important;
+    color: #fef3c7 !important;
+    border-color: #facc15 !important;
+  }
+
+  /* Tables / request rows */
+  table,
+  tr,
+  td,
+  th {
+    color: #f3f4f6;
+    border-color: #475569;
+  }
+
+  /* Horizontal lines */
+  hr {
+    border-color: #475569;
+  }
 }
