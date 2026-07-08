@@ -25,7 +25,7 @@ export default async function TopNav() {
         href="/dashboard"
         className="rounded-md border px-3 py-2 text-sm font-medium"
       >
-        Project Summary
+        Project Dashboard
       </Link>
 
       <Link
@@ -37,25 +37,38 @@ export default async function TopNav() {
 
       {isAdmin ? (
         <>
+          <div className="mx-2 h-6 self-center border-l border-gray-300" />
+
+          <span className="flex items-center text-sm font-semibold text-gray-600">
+            Admin Only:
+          </span>
+
           <Link
             href="/admin/projects"
             className="rounded-md border px-3 py-2 text-sm font-medium"
           >
-            Admin Projects
+            Project Management
           </Link>
 
           <Link
             href="/admin/requests"
             className="rounded-md border px-3 py-2 text-sm font-medium"
           >
-            Admin Requests
+            Booking Requests
           </Link>
+
+	  <Link
+	    href="/admin/pas-access"
+	    className="rounded-md border px-3 py-2 text-sm font-medium"
+	  >
+	    PAS and Access
+	  </Link>
 
           <Link
             href="/admin/available_days"
             className="rounded-md border px-3 py-2 text-sm font-medium"
           >
-            Admin Availability
+            Change Available Days
           </Link>
         </>
       ) : null}

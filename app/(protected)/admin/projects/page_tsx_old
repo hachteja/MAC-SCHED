@@ -50,7 +50,7 @@ type ProjectWithUsage = ProjectRow & {
 }
 
 type CycleCard = ProposalCycleRow & {
-  role: 'previous' | 'active' | 'next'
+  role: 'extended' | 'active'
   bookedDays: number
   availableDays: number
   remainingDaysForFinalCycleProjects: number
@@ -238,49 +238,54 @@ export default async function AdminProjectsPage({
 
   const today = getTodayDateString()
 
-  const activeProposalCycles = proposalCycleRows.filter((cycle) =>
-    isDateInRange(today, cycle.start_date, cycle.end_date)
+  const activeProposalCycles = proposalCycleRows
+    .filter((cycle) => isDateInRange(today, cycle.start_date, cycle.end_date))
+    .sort((a, b) => a.start_date.localeCompare(b.start_date))
+
+  const activeCycleCodes = activeProposalCycles.map((cycle) => cycle.code)
+  const activeCycleCodeSet = new Set(activeCycleCodes)
+
+  const activeProjectsInDateWindow = activeProjects.filter((project) =>
+    isDateInRange(today, project.start_date, project.end_date)
   )
 
-  const currentACycle = [...activeProposalCycles]
-    .filter((cycle) => cycle.half === 'A')
-    .sort((a, b) => b.start_date.localeCompare(a.start_date))[0]
+  const remainingDaysByOriginalCycle = new Map<string, number>()
+  for (const project of activeProjectsInDateWindow) {
+    const originalCycleCode = getCycleCodeFromProposalNumber(project.proposal_number)
+    if (!originalCycleCode) continue
 
-  const summaryBaseCycleCode = currentACycle?.code ?? activeProposalCycles[0]?.code
-  const previousCycleCode = summaryBaseCycleCode
-    ? getPreviousCycleCode(summaryBaseCycleCode)
-    : null
-  const nextCycleCode = summaryBaseCycleCode
-    ? getNextCycleCode(summaryBaseCycleCode)
-    : null
-  const afterNextCycleCode = nextCycleCode
-    ? getNextCycleCode(nextCycleCode)
-    : null
+    remainingDaysByOriginalCycle.set(
+      originalCycleCode,
+      (remainingDaysByOriginalCycle.get(originalCycleCode) ?? 0) + project.remainingDays
+    )
+  }
 
-  const summaryCycleCodes = [
-    previousCycleCode,
-    summaryBaseCycleCode,
-    nextCycleCode,
-    afterNextCycleCode,
-  ].filter(Boolean) as string[]
+  const extendedCycleCodes = Array.from(remainingDaysByOriginalCycle.keys())
+    .filter((code) => !activeCycleCodeSet.has(code))
+    .filter((code) => (remainingDaysByOriginalCycle.get(code) ?? 0) > 0)
+    .sort(compareCycleCodes)
 
-  const activeCycleIdsForToday = new Set(activeProposalCycles.map((cycle) => cycle.id))
+  const summaryCycleCodes = Array.from(
+    new Set([...extendedCycleCodes, ...activeCycleCodes])
+  ).sort(compareCycleCodes)
 
-  const summaryCycleConfigs = summaryCycleCodes.map((code) => {
-    const cycle = cycleByCode.get(code)
+  const usedDaySet = new Set(statusRows.map((row) => row.day))
 
-    return {
-      code,
-      role: cycle && activeCycleIdsForToday.has(cycle.id)
-        ? 'active' as const
-        : code === previousCycleCode
-          ? 'previous' as const
-          : 'next' as const,
-    }
-  })
+  const remainingAvailableDaysInCurrentCycles = instrumentDayRows.filter((instrumentDay) => {
+    const isInCurrentCycle = activeProposalCycles.some((cycle) =>
+      isDateInRange(instrumentDay.day, cycle.start_date, cycle.end_date)
+    )
 
-  const visibleCycles: CycleCard[] = summaryCycleConfigs
-    .map(({ code, role }) => {
+    return isInCurrentCycle && !usedDaySet.has(instrumentDay.day)
+  }).length
+
+  const remainingAllocatedDaysInCurrentCycle = activeProjectsInDateWindow.reduce(
+    (sum, project) => sum + project.remainingDays,
+    0
+  )
+
+  const visibleCycles: CycleCard[] = summaryCycleCodes
+    .map((code) => {
       const cycle = cycleByCode.get(code)
       if (!cycle) return null
 
@@ -288,50 +293,41 @@ export default async function AdminProjectsPage({
         isDateInRange(day.day, cycle.start_date, cycle.end_date)
       ).length
 
-      const bookedDays = statusRows.filter((row) => {
-        if (!row.project_id) return false
-
-        const projectCycleIds = cycleIdsByProject.get(row.project_id)
-        if (!projectCycleIds || !projectCycleIds.has(cycle.id)) return false
-
-        return isDateInRange(row.day, cycle.start_date, cycle.end_date)
-      }).length
-
-      const projectIdsForCycle = projectIdsByCycle.get(cycle.id) ?? new Set<string>()
-      let remainingDaysForFinalCycleProjects = 0
-
-      for (const projectId of projectIdsForCycle) {
-        const project = activeProjectsById.get(projectId)
-        if (!project) continue
-
-        if (project.end_date <= cycle.end_date) {
-          remainingDaysForFinalCycleProjects += project.remainingDays
-        }
-      }
+      const bookedDays = statusRows.filter((row) =>
+        isDateInRange(row.day, cycle.start_date, cycle.end_date)
+      ).length
 
       return {
         ...cycle,
-        role,
+        role: activeCycleCodeSet.has(code) ? 'active' as const : 'extended' as const,
         bookedDays,
         availableDays,
-        remainingDaysForFinalCycleProjects,
+        remainingDaysForFinalCycleProjects: remainingDaysByOriginalCycle.get(code) ?? 0,
       }
     })
     .filter(Boolean) as CycleCard[]
 
-  const totalDaysOverview = currentACycle
-    ? instrumentDayRows.filter((day) =>
-        isDateInRange(day.day, currentACycle.start_date, currentACycle.end_date)
-      ).length
-    : 0
-
-  const activeCycleLabel = activeProposalCycles.length > 0
-    ? activeProposalCycles.map((cycle) => cycle.code).join(' & ')
+  const summaryCycleLabel = summaryCycleCodes.length > 0
+    ? summaryCycleCodes
+        .map((code) => activeCycleCodeSet.has(code) ? code : `${code} (Ext)`)
+        .join(', ')
     : 'None'
 
-  const allocatedDaysOverview = activeProjects
-    .filter((project) => isDateInRange(today, project.start_date, project.end_date))
-    .reduce((sum, project) => sum + project.allocated_days, 0)
+  const perCycleRemainingLabel = summaryCycleCodes.length > 0
+    ? summaryCycleCodes
+        .map((code) => `Remaining for ${code}: ${remainingDaysByOriginalCycle.get(code) ?? 0}`)
+        .join(' | ')
+    : 'No cycle remaining-day totals available.'
+
+  const totalAvailableDaysAcrossCycles = visibleCycles.reduce(
+    (sum, cycle) => sum + cycle.availableDays,
+    0
+  )
+
+  const totalAllocatedDaysAcrossCycles = activeProjectsInDateWindow.reduce(
+    (sum, project) => sum + project.allocated_days,
+    0
+  )
 
   return (
     <main className="p-6 space-y-6">
@@ -365,36 +361,39 @@ export default async function AdminProjectsPage({
         </div>
       ) : null}
 
-      <div className="text-lg font-semibold text-gray-900 flex flex-wrap items-center gap-6">
-        <span>
-          Current Cycles: {activeCycleLabel}
-        </span>
-
-        <span className="text-gray-400">|</span>
-
-        <span>
-          Total Days: {totalDaysOverview}
-        </span>
-
-        <span className="text-gray-400">|</span>
-
-        <span>
-          Allocated Days: {allocatedDaysOverview}
-        </span>
-      </div>
-
-      <section className="space-y-3">
-        <h2 className="text-xl font-semibold">Cycle Summary</h2>
-
-        {visibleCycles.length === 0 ? (
-          <p className="text-sm text-gray-600">No proposal cycles found.</p>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {visibleCycles.map((cycle) => (
-              <CycleCardView key={cycle.id} cycle={cycle} />
-            ))}
+      <section className="rounded-lg border bg-white px-5 py-4 shadow-sm">
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div>
+            <div className="text-base font-bold text-black">Current Cycles</div>
+            <div className="mt-1 text-base font-normal text-black">{summaryCycleLabel}</div>
           </div>
-        )}
+
+          <div>
+            <div className="text-base font-bold text-black">
+              Remaining Available Days in Current Cycles
+            </div>
+            <div className="mt-1 text-base font-normal text-black">
+              {remainingAvailableDaysInCurrentCycles}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-base font-bold text-black">
+              Remaining Allocated Days in Current Cycle
+            </div>
+            <div className="mt-1 text-base font-normal text-black">
+              {remainingAllocatedDaysInCurrentCycle}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 border-t pt-3 text-sm text-gray-600">
+          <div>{perCycleRemainingLabel}</div>
+          <div className="mt-1">
+            Total Available Days Across Cycles: {totalAvailableDaysAcrossCycles} | Total Allocated
+            Days Across Cycles: {totalAllocatedDaysAcrossCycles}
+          </div>
+        </div>
       </section>
 
       <section className="space-y-3">
@@ -429,12 +428,7 @@ export default async function AdminProjectsPage({
 }
 
 function CycleCardView({ cycle }: { cycle: CycleCard }) {
-  const label =
-    cycle.role === 'previous'
-      ? '(Previous)'
-      : cycle.role === 'next'
-        ? '(Next)'
-        : '(Active)'
+  const label = cycle.role === 'extended' ? '(Extended)' : '(Current)'
 
   const cardClassName =
     cycle.role === 'active'
@@ -448,10 +442,10 @@ function CycleCardView({ cycle }: { cycle: CycleCard }) {
       </div>
       <div className="mt-2 space-y-1 text-sm text-gray-700">
         <div>
-          Booked: {cycle.bookedDays} - Available: {cycle.availableDays}
+          Booked: {cycle.bookedDays} - Available/Booked Total: {cycle.availableDays}
         </div>
         <div>
-          Remaining Days for Final Cycle Projects: {cycle.remainingDaysForFinalCycleProjects}
+          Remaining Days for Original Cycle Projects: {cycle.remainingDaysForFinalCycleProjects}
         </div>
       </div>
     </div>
@@ -501,24 +495,35 @@ function getTodayDateString() {
   return new Date().toISOString().slice(0, 10)
 }
 
-function getNextCycleCode(code: string) {
-  const year = Number(code.slice(0, 4))
-  const half = code.slice(4)
+function getCycleCodeFromProposalNumber(proposalNumber: string) {
+  const match = proposalNumber.match(/CNMS(\d{4})-([AB])-/i)
+  if (!match) return null
 
-  if (half === 'A') {
-    return `${year}B`
-  }
-
-  return `${year + 1}A`
+  return `${match[1]}${match[2].toUpperCase()}`
 }
 
-function getPreviousCycleCode(code: string) {
-  const year = Number(code.slice(0, 4))
-  const half = code.slice(4)
+function compareCycleCodes(a: string, b: string) {
+  const parsedA = parseCycleCode(a)
+  const parsedB = parseCycleCode(b)
 
-  if (half === 'A') {
-    return `${year - 1}B`
+  if (!parsedA && !parsedB) return a.localeCompare(b)
+  if (!parsedA) return 1
+  if (!parsedB) return -1
+
+  if (parsedA.year !== parsedB.year) {
+    return parsedA.year - parsedB.year
   }
 
-  return `${year}A`
+  return parsedA.half.localeCompare(parsedB.half)
 }
+
+function parseCycleCode(code: string) {
+  const match = code.match(/^(\d{4})([AB])$/)
+  if (!match) return null
+
+  return {
+    year: Number(match[1]),
+    half: match[2],
+  }
+}
+

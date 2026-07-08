@@ -103,6 +103,19 @@ export async function createProject(formData: FormData) {
     redirect('/admin/projects/new?error=create')
   }
 
+  const { error: allocationInsertError } = await supabase
+    .from('project_allocations')
+    .insert({
+      project_id: createdProject.id,
+      allocation_type: 'original',
+      days: allocatedDays,
+      note: 'Initial project allocation',
+    })
+
+  if (allocationInsertError) {
+    redirect('/admin/projects/new?error=create')
+  }
+
   if (matchedProfiles.length > 0) {
     const memberRows = matchedProfiles.map((profile) => ({
       project_id: createdProject.id,
@@ -430,4 +443,66 @@ export async function removeProjectMember(formData: FormData) {
 
   revalidatePath(`/admin/projects/${projectId}`)
   redirect(`/admin/projects/${projectId}?success=member-removed`)
+}
+
+export async function addProjectAllocation(formData: FormData) {
+  const { supabase } = await requireAdmin()
+
+  const projectId = String(formData.get('project_id') || '').trim()
+  const allocationType = String(formData.get('allocation_type') || '').trim()
+  const days = Number(formData.get('days') || 0)
+  const note = String(formData.get('note') || '').trim()
+
+  if (!projectId || !allocationType || !days) {
+    redirect(`/admin/projects/${projectId}?error=allocation-missing`)
+  }
+
+  if (!['extension', 'additional'].includes(allocationType)) {
+    redirect(`/admin/projects/${projectId}?error=allocation-type`)
+  }
+
+  if (days <= 0) {
+    redirect(`/admin/projects/${projectId}?error=allocation-days`)
+  }
+
+  const { error: allocationError } = await supabase
+    .from('project_allocations')
+    .insert({
+      project_id: projectId,
+      allocation_type: allocationType,
+      days,
+      note: note || null,
+    })
+
+  if (allocationError) {
+    redirect(`/admin/projects/${projectId}?error=allocation-create`)
+  }
+
+  const { data: project, error: projectError } = await supabase
+    .from('projects')
+    .select('allocated_days')
+    .eq('id', projectId)
+    .single()
+
+  if (projectError || !project) {
+    redirect(`/admin/projects/${projectId}?error=allocation-update`)
+  }
+
+  const { error: updateError } = await supabase
+    .from('projects')
+    .update({
+      allocated_days: Number(project.allocated_days) + days,
+    })
+    .eq('id', projectId)
+
+  if (updateError) {
+    redirect(`/admin/projects/${projectId}?error=allocation-update`)
+  }
+
+  revalidatePath('/admin/projects')
+  revalidatePath(`/admin/projects/${projectId}`)
+  revalidatePath('/dashboard')
+  revalidatePath('/available-days')
+
+  redirect(`/admin/projects/${projectId}?success=allocation-added`)
 }

@@ -18,6 +18,7 @@ type ProjectRow = {
   start_date: string
   end_date: string
   status: string
+  principal_investigator_id: string | null
 }
 
 type CalendarDayStatusRow = {
@@ -43,10 +44,30 @@ type InstrumentDayRow = {
   day: string
 }
 
+type ProjectMemberProfile = {
+  full_name: string | null
+  email: string | null
+}
+
+type ProjectMemberRow = {
+  project_id: string
+  user_id: string
+  profiles: ProjectMemberProfile | ProjectMemberProfile[] | null
+}
+
+type ProjectMember = {
+  project_id: string
+  user_id: string
+  isPi: boolean
+  name: string
+  email: string | null
+}
+
 type ProjectWithUsage = ProjectRow & {
   usedDays: number
   remainingDays: number
   isExtended: boolean
+  members: ProjectMember[]
 }
 
 type CycleCard = ProposalCycleRow & {
@@ -103,9 +124,10 @@ export default async function AdminProjectsPage({
     redirect('/dashboard')
   }
 
+
   const { data: projects, error: projectsError } = await supabase
     .from('projects')
-    .select('id, title, proposal_number, allocated_days, start_date, end_date, status')
+    .select('id, title, proposal_number, allocated_days, start_date, end_date, status, principal_investigator_id')
     .order('proposal_number', { ascending: true })
 
   if (projectsError) {
@@ -113,6 +135,21 @@ export default async function AdminProjectsPage({
       <main className="p-6 space-y-6">
         <TopNav />
         <p className="text-red-600">Error loading projects: {projectsError.message}</p>
+      </main>
+    )
+  }
+
+  const { data: projectMembers, error: projectMembersError } = await supabase
+    .from('project_members')
+    .select('project_id, user_id, profiles(full_name, email)')
+
+  if (projectMembersError) {
+    return (
+      <main className="p-6 space-y-6">
+        <TopNav />
+        <p className="text-red-600">
+          Error loading project members: {projectMembersError.message}
+        </p>
       </main>
     )
   }
@@ -183,6 +220,7 @@ export default async function AdminProjectsPage({
 
   const projectRows = (((projects as unknown) as ProjectRow[] | null) ?? [])
     .filter((project) => project.status !== 'retired')
+  const projectMemberRows = (((projectMembers as unknown) as ProjectMemberRow[] | null) ?? [])
   const statusRows = (((calendarStatuses as unknown) as CalendarDayStatusRow[] | null) ?? [])
   const cycleRows = (((projectCycles as unknown) as ProjectCycleRow[] | null) ?? [])
   const proposalCycleRows = (((proposalCycles as unknown) as ProposalCycleRow[] | null) ?? [])
@@ -216,24 +254,49 @@ export default async function AdminProjectsPage({
     projectIdsByCycle.set(row.cycle_id, projectSetForCycle)
   }
 
+  const membersByProject = new Map<string, ProjectMember[]>()
+
+  for (const row of projectMemberRows) {
+    const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+    const name = getMemberDisplayName(profile, row.user_id)
+
+    const member: ProjectMember = {
+      project_id: row.project_id,
+      user_id: row.user_id,
+      isPi: false,
+      name,
+      email: profile?.email ?? null,
+    }
+
+    const members = membersByProject.get(row.project_id) ?? []
+    members.push(member)
+    membersByProject.set(row.project_id, members)
+  }
+
   const projectsWithUsage: ProjectWithUsage[] = projectRows.map((project) => {
     const usedDays = usedDaysByProject.get(project.id) ?? 0
     const remainingDays = Math.max(project.allocated_days - usedDays, 0)
     const cycleCount = cycleCountByProject.get(project.id) ?? 0
     const isExtended = cycleCount > 1
+    const members = (membersByProject.get(project.id) ?? []).map((member) => ({
+      ...member,
+      isPi: member.user_id === project.principal_investigator_id,
+    }))
 
     return {
       ...project,
       usedDays,
       remainingDays,
       isExtended,
+      members: sortProjectMembers(members),
     }
   })
 
   const activeProjects = projectsWithUsage.filter((project) => project.status === 'active')
   const inactiveProjects = projectsWithUsage.filter((project) => project.status === 'inactive')
-  const activeProjectsById = new Map(activeProjects.map((project) => [project.id, project]))
-
+  const searchQuery = (getSingleParam(params.q) ?? '').trim()
+  const filteredActiveProjects = filterProjectsBySearch(activeProjects, searchQuery)
+  const filteredInactiveProjects = filterProjectsBySearch(inactiveProjects, searchQuery)
   const cycleByCode = new Map(proposalCycleRows.map((cycle) => [cycle.code, cycle]))
 
   const today = getTodayDateString()
@@ -397,13 +460,41 @@ export default async function AdminProjectsPage({
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-xl font-semibold">Active Proposals</h2>
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <h2 className="text-xl font-semibold">Active Proposals</h2>
+
+          <form action="/admin/projects" className="flex w-full gap-2 md:w-auto">
+            <input
+              type="search"
+              name="q"
+              defaultValue={searchQuery}
+              placeholder="Search title, proposal, PI, or member"
+              className="w-full rounded-md border px-3 py-2 text-sm md:w-80"
+            />
+            <button
+              type="submit"
+              className="rounded-md border px-4 py-2 text-sm font-medium"
+            >
+              Search
+            </button>
+            {searchQuery ? (
+              <Link
+                href="/admin/projects"
+                className="rounded-md border px-4 py-2 text-sm font-medium"
+              >
+                Clear
+              </Link>
+            ) : null}
+          </form>
+        </div>
 
         {activeProjects.length === 0 ? (
           <p className="text-sm text-gray-600">No active proposals found.</p>
+        ) : filteredActiveProjects.length === 0 ? (
+          <p className="text-sm text-gray-600">No active proposals match that search.</p>
         ) : (
           <div className="space-y-2">
-            {activeProjects.map((project) => (
+            {filteredActiveProjects.map((project) => (
               <ProjectCard key={project.id} project={project} />
             ))}
           </div>
@@ -415,9 +506,11 @@ export default async function AdminProjectsPage({
 
         {inactiveProjects.length === 0 ? (
           <p className="text-sm text-gray-600">No deactivated proposals found.</p>
+        ) : filteredInactiveProjects.length === 0 ? (
+          <p className="text-sm text-gray-600">No deactivated proposals match that search.</p>
         ) : (
           <div className="space-y-2">
-            {inactiveProjects.map((project) => (
+            {filteredInactiveProjects.map((project) => (
               <ProjectCard key={project.id} project={project} />
             ))}
           </div>
@@ -452,26 +545,79 @@ function CycleCardView({ cycle }: { cycle: CycleCard }) {
   )
 }
 
-function ProjectCard({
-  project,
-}: {
-  project: ProjectWithUsage
-}) {
+function ProjectCard({ project }: { project: ProjectWithUsage }) {
   return (
     <div className="rounded border px-4 py-3 hover:bg-gray-50">
       <Link href={`/admin/projects/${project.id}`} className="block">
         <div className="space-y-1 text-sm text-gray-700">
           <div className="font-semibold">{project.proposal_number}</div>
+          <div className="text-base font-medium text-gray-900">{project.title}</div>
+          <ProjectMemberList members={project.members} />
           <div>Remaining Days: {project.remainingDays}/{project.allocated_days}</div>
           <div>
             {formatShortDate(project.start_date)} - {formatShortDate(project.end_date)}
             {project.isExtended ? ' (Extended)' : ''}
           </div>
-          <div>{project.title}</div>
         </div>
       </Link>
     </div>
   )
+}
+
+function ProjectMemberList({ members }: { members: ProjectMember[] }) {
+  if (members.length === 0) {
+    return <div className="text-sm text-gray-500">Members: None</div>
+  }
+
+  return (
+    <div className="text-sm text-gray-700">
+      Members:{' '}
+      {members.map((member, index) => (
+        <span key={member.user_id}>
+          {index > 0 ? ', ' : ''}
+          <span className={member.isPi ? 'font-bold text-gray-900' : undefined}>
+            {member.name}{member.isPi ? ' (PI)' : ''}
+          </span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+
+function filterProjectsBySearch(projects: ProjectWithUsage[], searchQuery: string) {
+  const normalizedQuery = searchQuery.trim().toLowerCase()
+
+  if (!normalizedQuery) return projects
+
+  return projects.filter((project) => {
+    const searchableText = [
+      project.title,
+      project.proposal_number,
+      ...project.members.flatMap((member) => [member.name, member.email ?? '']),
+    ]
+      .join(' ')
+      .toLowerCase()
+
+    return searchableText.includes(normalizedQuery)
+  })
+}
+
+function getMemberDisplayName(profile: ProjectMemberProfile | null | undefined, fallbackUserId: string) {
+  const fullName = profile?.full_name?.trim()
+  if (fullName) return fullName
+
+  const email = profile?.email?.trim()
+  if (email) return email
+
+  return fallbackUserId
+}
+
+function sortProjectMembers(members: ProjectMember[]) {
+  return [...members].sort((a, b) => {
+    if (a.isPi !== b.isPi) return a.isPi ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
 }
 
 function formatShortDate(dateStr: string) {

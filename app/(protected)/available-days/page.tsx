@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { cancelRequest, requestDay } from './actions'
 import TopNav from '@/app/components/top-nav'
+import ParticipationRequestForm from './participation-request-form'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,6 +31,11 @@ type MembershipRow = {
   projects: ProjectRow | ProjectRow[] | null
 }
 
+type ProjectMemberRow = {
+  user_id: string
+  profiles: ProfileRow | ProfileRow[] | null
+}
+
 type CalendarRow = {
   id: string
   day: string
@@ -43,6 +49,8 @@ type BookingRow = {
   project_id: string
   status: string
   requested_by_user_id: string
+  onsite_participant_ids: string[] | null
+  remote_participant_ids: string[] | null
   profiles?: ProfileRow | ProfileRow[] | null
   instrument_days: {
     day: string
@@ -162,18 +170,19 @@ export default async function AvailableDaysPage({
     ((((memberships as unknown) as MembershipRow[] | null) ?? []))
       .map((m) => (Array.isArray(m.projects) ? m.projects[0] : m.projects))
       .filter((p): p is ProjectRow => Boolean(p))
+      .sort((a, b) => a.start_date.localeCompare(b.start_date))
 
   if (!projects.length) {
     return (
       <main className="p-6 space-y-6">
         <TopNav />
         <div>
-          <h1 className="text-3xl font-bold">Available Days</h1>
-          <p className="text-sm text-gray-600">
-            Signed in as {profile?.full_name || profile?.email}
-          </p>
-        </div>
-        {errorMessage ? (
+	  <h1 className="text-3xl font-bold">Available Days</h1>
+	  <p className="text-sm text-gray-600">
+	    Signed in as {profile?.full_name || profile?.email}
+	  </p>
+	</div>
+	{errorMessage ? (
           <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
             {errorMessage}
           </div>
@@ -191,6 +200,58 @@ export default async function AvailableDaysPage({
   const selectedProject =
     projects.find((p) => p.id === selectedProjectParam) ?? projects[0]
 
+  const { data: selectedProjectMembers, error: selectedProjectMembersError } = await supabase
+    .from('project_members')  
+    .select(`
+      user_id,
+      profiles:user_id (
+        id,
+        email,
+        full_name
+      )
+    `)
+    .eq('project_id', selectedProject.id)
+    .order('user_id', { ascending: true })
+
+  if (selectedProjectMembersError) {
+    return (
+      <main className="p-6 space-y-6">
+        <TopNav />
+        <p className="text-red-600">
+          Error loading project members: {selectedProjectMembersError.message}
+        </p>
+      </main>
+    )
+  }
+
+  const projectMembers =
+    (((selectedProjectMembers as unknown) as ProjectMemberRow[] | null) ?? [])
+      .map((member) => {
+        const profile = Array.isArray(member.profiles)
+          ? member.profiles[0]
+          : member.profiles
+  
+        return profile
+      })
+      .filter((profile): profile is ProfileRow => Boolean(profile))
+
+  const projectMemberNameById = new Map(
+    projectMembers.map((member) => [
+      member.id,
+      member.full_name || member.email,
+    ])
+  )
+
+  function formatParticipantList(ids: string[] | null | undefined) {
+    if (!ids || ids.length === 0) return 'None'
+
+    return ids
+      .map((id) => projectMemberNameById.get(id))
+      .filter(Boolean)
+      .join(', ') || 'None'
+  }
+ 
+ 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const todayStr = toDateOnly(today)
@@ -205,6 +266,8 @@ export default async function AvailableDaysPage({
       project_id,
       status,
       requested_by_user_id,
+      onsite_participant_ids,
+      remote_participant_ids,      
       instrument_days (
         day,
         status
@@ -257,6 +320,8 @@ export default async function AvailableDaysPage({
           project_id,
           status,
           requested_by_user_id,
+	  onsite_participant_ids,
+	  remote_participant_ids,
           profiles:requested_by_user_id (
             id,
             email,
@@ -323,8 +388,17 @@ export default async function AvailableDaysPage({
       ) : null}
 
       {successMessage ? (
-        <div className="rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-700">
-          {successMessage}
+        <div className="space-y-3 rounded-md border border-green-300 bg-green-50 px-3 py-3 text-sm text-green-800">
+          <p className="font-medium">{successMessage}</p>
+
+          {successCode === 'requested' ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+              <strong>Note:</strong> All users participating on-site or remotely must have an active ORNL
+              badge. Reach out to your technical contact as early as possible to begin this process, some foreign
+              nationals may require up to 25 business days processing for their badges if they are from
+              certain countries.
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -344,15 +418,19 @@ export default async function AvailableDaysPage({
               <Link
                 key={project.id}
                 href={`/available-days?project=${project.id}`}
-                className={`rounded-xl border px-3 py-2 text-sm shadow-sm ${
+                className={`flex h-20 w-45 shrink-0 flex-col justify-between rounded-xl border px-3 py-2 text-sm shadow-sm ${
                   isSelected ? 'border-black font-semibold' : ''
                 }`}
               >
-                <div>{project.proposal_number}</div>
-                <div className="text-gray-600">
+                <div className="truncate">{project.proposal_number}</div>
+
+                <div className="whitespace-nowrap text-gray-600">
                   {formatShortDate(project.start_date)} - {formatShortDate(project.end_date)}
                 </div>
-                <div className="text-gray-600">{projectRemaining} days remaining</div>
+
+                <div className="whitespace-nowrap text-gray-600">
+                  {projectRemaining} days remaining
+                </div>
               </Link>
             )
           })}
@@ -375,18 +453,8 @@ export default async function AvailableDaysPage({
                 {group.rows.map((day) => {
                   const booking = bookingRows.find((b) => b.instrument_day_id === day.id)
 
-                  const requester = booking
-                    ? Array.isArray(booking.profiles)
-                      ? booking.profiles[0]
-                      : booking.profiles
-                    : null
-
-                  const requesterName =
-                    requester?.full_name || requester?.email || null
-
                   const belongsToSelectedProject =
                     booking?.project_id === selectedProject.id
-                  const isMine = booking?.requested_by_user_id === userId
 
                   const statusLabel =
                     day.status === 'available'
@@ -398,8 +466,10 @@ export default async function AvailableDaysPage({
                           : day.status
 
                   const middleText =
-                    booking && belongsToSelectedProject && requesterName
-                      ? `Requested for ${selectedProject.proposal_number} by ${requesterName}${isMine ? ' (you)' : ''}`
+                    booking && belongsToSelectedProject
+                      ? `(${selectedProject.proposal_number}) On Site: ${formatParticipantList(
+                          booking.onsite_participant_ids
+                        )}, Remote: ${formatParticipantList(booking.remote_participant_ids)}`
                       : ''
 
                   return (
@@ -426,16 +496,12 @@ export default async function AvailableDaysPage({
 
                       <div className="shrink-0">
                         {day.status === 'available' ? (
-                          <form action={requestDay}>
-                            <input type="hidden" name="instrument_day_id" value={day.id} />
-                            <input type="hidden" name="project_id" value={selectedProject.id} />
-                            <button
-                              type="submit"
-			      className="rounded bg-white border px-2 py-1 text-xs font-medium shadow-sm hover:bg-gray-50"
-                            >
-                              Request
-                            </button>
-                          </form>
+                          <ParticipationRequestForm
+                            projectId={selectedProject.id}
+                            instrumentDayId={day.id}
+                            projectMembers={projectMembers}
+                            action={requestDay}
+			  />
                         ) : booking && belongsToSelectedProject ? (
                           <form action={cancelRequest}>
                             <input type="hidden" name="booking_request_id" value={booking.id} />

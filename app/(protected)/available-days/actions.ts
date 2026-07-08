@@ -13,6 +13,16 @@ export async function requestDay(formData: FormData) {
   const projectId = String(formData.get('project_id') || '')
   const instrumentDayId = String(formData.get('instrument_day_id') || '')
 
+  const onsiteParticipantIds = formData
+    .getAll('onsite_participant_ids')
+    .map((value) => String(value))
+    .filter(Boolean)
+
+  const remoteParticipantIds = formData
+    .getAll('remote_participant_ids')
+    .map((value) => String(value))
+    .filter(Boolean)
+
   if (claimsError || !claims) {
     redirect(`/available-days?project=${projectId}&error=signin`)
   }
@@ -28,6 +38,8 @@ export async function requestDay(formData: FormData) {
     project_id: projectId,
     requested_by_user_id: userId,
     status: 'pending',
+    onsite_participant_ids: onsiteParticipantIds,
+    remote_participant_ids: remoteParticipantIds,
   })
 
   if (error) {

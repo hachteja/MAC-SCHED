@@ -4,25 +4,11 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 
-function getMessage(errorMessage: string) {
-  if (errorMessage.includes('Project has no remaining allocation')) {
-    return 'No remaining allocation for this project.'
-  }
-
-  if (errorMessage.includes('This day is no longer available')) {
-    return 'That day is no longer available.'
-  }
-
-  return 'Something went wrong.'
-}
-
 export async function requestDay(formData: FormData) {
   const supabase = await createClient()
 
-  const {
-    data: { claims },
-    error: claimsError,
-  } = await supabase.auth.getClaims()
+  const { data, error: claimsError } = await supabase.auth.getClaims()
+  const claims = data?.claims
 
   const projectId = String(formData.get('project_id') || '')
   const instrumentDayId = String(formData.get('instrument_day_id') || '')
@@ -45,8 +31,15 @@ export async function requestDay(formData: FormData) {
   })
 
   if (error) {
-    const message = encodeURIComponent(getMessage(error.message))
-    redirect(`/available-days?project=${projectId}&error=${message}`)
+    if (error.message.includes('Project has no remaining allocation')) {
+      redirect(`/available-days?project=${projectId}&error=allocation`)
+    }
+
+    if (error.message.includes('This day is no longer available')) {
+      redirect(`/available-days?project=${projectId}&error=unavailable`)
+    }
+
+    redirect(`/available-days?project=${projectId}&error=generic`)
   }
 
   revalidatePath('/available-days')
@@ -57,10 +50,8 @@ export async function requestDay(formData: FormData) {
 export async function cancelRequest(formData: FormData) {
   const supabase = await createClient()
 
-  const {
-    data: { claims },
-    error: claimsError,
-  } = await supabase.auth.getClaims()
+  const { data, error: claimsError } = await supabase.auth.getClaims()
+  const claims = data?.claims
 
   const bookingRequestId = String(formData.get('booking_request_id') || '')
   const projectId = String(formData.get('project_id') || '')
@@ -79,8 +70,7 @@ export async function cancelRequest(formData: FormData) {
     .eq('id', bookingRequestId)
 
   if (error) {
-    const message = encodeURIComponent('Unable to cancel request.')
-    redirect(`/available-days?project=${projectId}&error=${message}`)
+    redirect(`/available-days?project=${projectId}&error=cancel`)
   }
 
   revalidatePath('/available-days')

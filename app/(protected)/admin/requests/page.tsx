@@ -5,7 +5,9 @@ import {
   approveRequest,
   rejectRequest,
   cancelApprovedRequest,
+  updateRequestParticipation,
 } from './actions'
+import EditRequestUsersButton from './edit-request-users-button'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,14 +21,18 @@ type RequestRow = {
   project_id: string
   requested_by_user_id: string
   created_at: string
+  onsite_participant_ids: string[] | null
+  remote_participant_ids: string[] | null
   projects: {
     id: string
     title: string
     proposal_number: string
+    principal_investigator_id: string | null
   } | {
     id: string
     title: string
     proposal_number: string
+    principal_investigator_id: string | null
   }[] | null
   profiles: {
     id: string
@@ -43,6 +49,20 @@ type RequestRow = {
   } | {
     day: string
     status: string
+  }[] | null
+}
+
+type ProjectMemberRow = {
+  project_id: string
+  user_id: string
+  profiles: {
+    id: string
+    email: string
+    full_name: string | null
+  } | {
+    id: string
+    email: string
+    full_name: string | null
   }[] | null
 }
 
@@ -127,11 +147,14 @@ export default async function AdminRequestsPage({
       status,
       project_id,
       requested_by_user_id,
+      onsite_participant_ids,
+      remote_participant_ids,
       created_at,
       projects:project_id (
         id,
         title,
-        proposal_number
+        proposal_number,
+        principal_investigator_id
       ),
       profiles:requested_by_user_id (
         id,
@@ -155,11 +178,14 @@ export default async function AdminRequestsPage({
       status,
       project_id,
       requested_by_user_id,
+      onsite_participant_ids,
+      remote_participant_ids,
       created_at,
       projects:project_id (
         id,
         title,
-        proposal_number
+        proposal_number,
+        principal_investigator_id
       ),
       profiles:requested_by_user_id (
         id,
@@ -197,6 +223,107 @@ export default async function AdminRequestsPage({
     return aDay.localeCompare(bDay)
   })
 
+  const displayedRows = [...pendingRows, ...bookedRows]
+
+  const displayedProjectIds = Array.from(
+    new Set(displayedRows.map((row) => row.project_id).filter(Boolean))
+  )
+
+  const { data: displayedProjectMembers, error: displayedProjectMembersError } =
+    displayedProjectIds.length
+      ? await supabase
+          .from('project_members')
+          .select(`
+            project_id,
+            user_id,
+            profiles:user_id (
+              id,
+              email,
+              full_name
+            )
+          `)
+          .in('project_id', displayedProjectIds)
+          .order('user_id', { ascending: true })
+      : { data: [], error: null }
+
+  if (displayedProjectMembersError) {
+    return (
+      <main className="p-6 space-y-6">
+        <TopNav />
+        <p className="text-red-600">
+          Error loading project members: {displayedProjectMembersError.message}
+        </p>
+      </main>
+    )
+  }
+
+  const projectMemberRows =
+    (((displayedProjectMembers as unknown) as ProjectMemberRow[] | null) ?? [])
+
+  const participantNameById = new Map<string, string>()
+
+  for (const member of projectMemberRows) {
+    const profile = Array.isArray(member.profiles)
+      ? member.profiles[0]
+      : member.profiles
+
+    if (profile) {
+      participantNameById.set(profile.id, profile.full_name || profile.email)
+    }
+  }
+
+  function formatParticipantList(ids: string[] | null | undefined) {
+    if (!ids || ids.length === 0) return 'None'
+
+    return ids
+      .map((id) => participantNameById.get(id))
+      .filter(Boolean)
+      .join(', ') || 'None'
+  }
+
+  function getProjectMembers(projectId: string) {
+    return projectMemberRows
+      .filter((member) => member.project_id === projectId)
+      .map((member) => {
+        const profile = Array.isArray(member.profiles)
+          ? member.profiles[0]
+          : member.profiles
+
+        return profile
+      })
+      .filter(
+        (
+          profile
+        ): profile is {
+          id: string
+          email: string
+          full_name: string | null
+        } => Boolean(profile)
+      )
+  }
+
+  function getProjectPiName(row: RequestRow) {
+    const project = getProject(row)
+
+    if (!project?.principal_investigator_id) {
+      return 'Not Selected Yet'
+    }
+
+    const piMember = projectMemberRows.find(
+      (member) =>
+        member.project_id === row.project_id &&
+        member.user_id === project.principal_investigator_id
+    )
+
+    const profile = piMember
+      ? Array.isArray(piMember.profiles)
+        ? piMember.profiles[0]
+        : piMember.profiles
+      : null
+
+    return profile?.full_name || profile?.email || 'None listed'
+  }
+
   return (
     <main className="p-6 space-y-6">
       <TopNav />
@@ -228,26 +355,34 @@ export default async function AdminRequestsPage({
         ) : (
           <div className="space-y-2">
             {pendingRows.map((row) => {
-              const requester = getProfile(row)
               const project = getProject(row)
               const instrumentDay = getInstrumentDay(row)
-
-              return (
+	      const projectMembers = getProjectMembers(row.project_id)
+              const piName = getProjectPiName(row)
+	      return (
                 <div
                   key={row.id}
                   className="flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm"
                 >
-                  <div className="min-w-0 flex-1 flex items-center gap-8 text-gray-700">
-                    <span className="font-semibold">
+                  <div className="min-w-0 flex-1 flex items-center gap-4 text-gray-700">
+                    <span className="shrink-0 font-semibold">
                       {formatShortDate(instrumentDay?.day ?? '')}
                     </span>
 
-                    <span>
-                      Proposal: {project?.proposal_number}
+                    <span className="shrink-0">
+                      ({project?.proposal_number})
                     </span>
-      
-                    <span>
-                      User: {requester?.full_name || requester?.email || 'Unknown User'}
+
+		    <span className="min-w-0 truncate">
+		      PI: {piName}
+		    </span>
+
+                    <span className="min-w-0 truncate">
+                      On Site: {formatParticipantList(row.onsite_participant_ids)}
+                    </span>
+
+                    <span className="min-w-0 truncate">
+                      Remote: {formatParticipantList(row.remote_participant_ids)}
                     </span>
                   </div>
 
@@ -271,6 +406,16 @@ export default async function AdminRequestsPage({
                         Reject
                       </button>
                     </form>
+
+                    <EditRequestUsersButton
+                      requestId={row.id}
+                      projectMembers={projectMembers}
+                      initialOnsiteParticipantIds={row.onsite_participant_ids ?? []}
+                      initialRemoteParticipantIds={row.remote_participant_ids ?? []}
+		      returnTo="/admin/requests"
+                      action={updateRequestParticipation}
+		    />
+
                   </div>
                 </div>
               )
@@ -287,40 +432,57 @@ export default async function AdminRequestsPage({
         ) : (
           <div className="space-y-2">
             {bookedRows.map((row) => {
-              const requester = getProfile(row)
               const project = getProject(row)
               const instrumentDay = getInstrumentDay(row)
-
+	      const projectMembers = getProjectMembers(row.project_id)
+	      const piName = getProjectPiName(row)
               return (
                 <div
                   key={row.id}
                   className="flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm"
                 >
 
-		<div className="min-w-0 flex-1 flex items-center gap-8 text-gray-700">
-		  <span className="font-semibold">
-		    {formatShortDate(instrumentDay?.day ?? '')}
+                <div className="min-w-0 flex-1 flex items-center gap-4 text-gray-700">
+                  <span className="shrink-0 font-semibold">
+                    {formatShortDate(instrumentDay?.day ?? '')}
+                  </span>
+
+                  <span className="shrink-0">
+                    ({project?.proposal_number})
+                  </span>
+
+		  <span className="min-w-0 truncate">
+		    PI: {piName}
 		  </span>
 
-		  <span>
-		    Proposal: {project?.proposal_number}
-		  </span>
+                  <span className="min-w-0 truncate">
+                    On Site: {formatParticipantList(row.onsite_participant_ids)}
+                  </span>
 
-		  <span>
-		    User: {requester?.full_name || requester?.email || 'Unknown User'}
-		  </span>
+                  <span className="min-w-0 truncate">
+                    Remote: {formatParticipantList(row.remote_participant_ids)}
+                  </span>
 		</div>
 
-                  <div className="shrink-0">
+                  <div className="flex gap-2 shrink-0">
                     <form action={cancelApprovedRequest}>
                       <input type="hidden" name="request_id" value={row.id} />
                       <button
                         type="submit"
                         className="rounded border px-3 py-1 text-xs font-medium"
                       >
-                        Cancel Booking
+                        Cancel
                       </button>
                     </form>
+
+                    <EditRequestUsersButton
+                      requestId={row.id}
+                      projectMembers={projectMembers}
+                      initialOnsiteParticipantIds={row.onsite_participant_ids ?? []}
+                      initialRemoteParticipantIds={row.remote_participant_ids ?? []}
+		      returnTo="/admin/requests"
+                      action={updateRequestParticipation}
+		    />
                   </div>
                 </div>
               )
